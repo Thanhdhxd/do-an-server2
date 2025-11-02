@@ -76,7 +76,7 @@ export class AuthService {
             content: `Xin chào ${user.fullName},<br/>
         Mã OTP để đặt lại mật khẩu của bạn là: <b>${otp}</b>.<br/>
         Mã sẽ hết hạn sau ${OTP_EXPIRES_MIN} phút.<br/>
-        Nếu bạn không yêu cầu, vui lòng bỏ qua email này.`,
+        Nếu bạn không yêu cầu, vui lòng bỏ qua email này .`,
         })
 
         return generic
