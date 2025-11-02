@@ -5,9 +5,11 @@ import z from 'zod'
 
 config({ path: '.env' })
 
-if (!fs.existsSync(path.resolve('.env'))) {
-    console.log('Không tìm thấy file .env')
-    process.exit(1)
+const envPath = path.resolve('.env')
+if (fs.existsSync(envPath)) {
+    config({ path: envPath })
+} else {
+    console.log('File .env không tồn tại - sử dụng biến môi trường từ hệ thống')
 }
 
 const configSchema = z.object({
