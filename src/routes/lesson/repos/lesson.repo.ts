@@ -33,17 +33,6 @@ export class LessonRepo implements ILessonRepo {
         })
     }
 
-    async findTypeLessonById(lessonType: LessonType, id: number): Promise<Lecture | Exercise | Quiz | null> {
-        if (lessonType === LessonType.lecture) {
-            return this.prismaService.lecture.findUnique({ where: { id, deletedAt: null } })
-        } else if (lessonType === LessonType.exercise) {
-            return this.prismaService.exercise.findUnique({ where: { id, deletedAt: null } })
-        } else if (lessonType === LessonType.quiz) {
-            return this.prismaService.quiz.findUnique({ where: { id, deletedAt: null } })
-        }
-        return null
-    }
-
     async findByClassroomId(classroomId: number): Promise<any[]> {
         const lessons = await this.prismaService.lesson.findMany({
             where: {

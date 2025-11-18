@@ -11,16 +11,18 @@ import type { ILessonRepo } from '../repos/lesson.interface.repo'
 import { GetLessonsByClassroomQueryType } from '../dtos/queries/get-lessons-by-classroom.query'
 import { LessonsListResType, LessonWithDetailsType } from '../dtos/responses/lesson-with-details-res.dto'
 import { LectureTreeNodeType } from '../dtos/responses/lecture-tree.model'
+import { SharedLessonRepo } from 'src/shared/repos/shared-lesson.repo'
 
 @Injectable()
 export class LessonService implements ILessonService {
     constructor(
         @Inject('ILessonRepo')
         private readonly lessonRepo: ILessonRepo,
+        private readonly sharedLessonRepo: SharedLessonRepo,
     ) {}
 
     async assignLecture(body: AssignLectureReqType): Promise<LessonLectureResType> {
-        const lecture = await this.lessonRepo.findTypeLessonById(LessonType.lecture, body.lectureId)
+        const lecture = await this.sharedLessonRepo.findTypeLessonById(LessonType.lecture, body.lectureId)
         if (!lecture) {
             throw new NotFoundException('Không tìm thấy bài giảng')
         }
@@ -37,7 +39,7 @@ export class LessonService implements ILessonService {
     }
 
     async assignExercise(body: AssignExerciseReqType): Promise<LessonExerciseResType> {
-        const exercise = await this.lessonRepo.findTypeLessonById(LessonType.exercise, body.exerciseId)
+        const exercise = await this.sharedLessonRepo.findTypeLessonById(LessonType.exercise, body.exerciseId)
         if (!exercise) {
             throw new NotFoundException('Không tìm thấy bài tập')
         }
@@ -52,7 +54,7 @@ export class LessonService implements ILessonService {
     }
 
     async assignQuiz(body: AssignQuizReqType): Promise<LessonQuizResType> {
-        const quiz = await this.lessonRepo.findTypeLessonById(LessonType.quiz, body.quizId)
+        const quiz = await this.sharedLessonRepo.findTypeLessonById(LessonType.quiz, body.quizId)
         if (!quiz) {
             throw new NotFoundException('Không tìm thấy bài kiểm tra')
         }

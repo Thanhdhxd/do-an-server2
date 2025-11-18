@@ -11,6 +11,7 @@ import { SharedClassroomRepo } from './repos/shared-classroom.repo'
 import { SharedClrStdRepo } from './repos/shared-clrstd.repo'
 import { SharedJreqRepo } from './repos/shared-join-req.repo'
 import { SharedMediaRepo } from './repos/shared-media.repo'
+import { SharedLessonRepo } from './repos/shared-lesson.repo'
 
 const sharedServices = [
     PrismaService,
@@ -23,7 +24,8 @@ const sharedServices = [
     SharedClassroomRepo,
     SharedJreqRepo,
     SharedClrStdRepo,
-    SharedMediaRepo
+    SharedMediaRepo,
+    SharedLessonRepo
 ]
 
 @Global()

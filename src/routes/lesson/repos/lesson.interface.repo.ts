@@ -13,10 +13,5 @@ export interface ILessonRepo {
         quizEndAt?: Date | null
     }): Promise<Lesson>
 
-    findTypeLessonById(
-        lessonType: LessonType,
-        id: number
-    ): Promise<Lecture | Exercise | Quiz | null>
-
     findByClassroomId(classroomId: number): Promise<any[]>
 }
