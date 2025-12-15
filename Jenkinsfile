@@ -34,7 +34,7 @@ pipeline {
         
         stage('Generate Prisma Client') {
             steps {
-                echo 'Generating Prisma Client...'
+                echo 'Generating Prisma Client for production...'
                 script {
                     if (isUnix()) {
                         sh 'npx prisma generate'
@@ -45,18 +45,62 @@ pipeline {
             }
         }
         
-        stage('Run Tests') {
+        stage('Generate Test Prisma Client') {
             steps {
-                echo 'Running tests...'
+                echo 'Generating Prisma Test Client for SQLite...'
+                script {
+                    if (isUnix()) {
+                        sh 'npx prisma generate --schema=prisma/schema.test.prisma'
+                    } else {
+                        bat 'npx prisma generate --schema=prisma/schema.test.prisma'
+                    }
+                }
+            }
+        }
+        
+        stage('Generate Test Schema SQL') {
+            steps {
+                echo 'Generating test-schema.sql for SQLite...'
+                script {
+                    if (isUnix()) {
+                        sh 'npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.test.prisma --script > prisma/test-schema.sql'
+                    } else {
+                        bat 'npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.test.prisma --script > prisma/test-schema.sql'
+                    }
+                }
+            }
+        }
+        
+        stage('Run Unit Tests') {
+            steps {
+                echo 'Running unit tests with coverage...'
                 script {
                     try {
                         if (isUnix()) {
-                            sh 'npm run test -- --passWithNoTests'
+                            sh 'npm run test:cov'
                         } else {
-                            bat 'npm run test -- --passWithNoTests'
+                            bat 'npm run test:cov'
                         }
                     } catch (Exception e) {
-                        echo "Tests failed, but continuing pipeline: ${e.message}"
+                        echo "Unit tests failed: ${e.message}"
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+        }
+        
+        stage('Run E2E Tests') {
+            steps {
+                echo 'Running E2E tests...'
+                script {
+                    try {
+                        if (isUnix()) {
+                            sh 'npm run test:e2e'
+                        } else {
+                            bat 'npm run test:e2e'
+                        }
+                    } catch (Exception e) {
+                        echo "E2E tests failed: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
                     }
                 }
@@ -160,12 +204,37 @@ pipeline {
             echo 'Pipeline executed successfully!'
             echo "Docker Image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
             echo "Docker Hub: https://hub.docker.com/r/${DOCKER_HUB_USERNAME}/do-an-server"
+            
+            // Publish test results if available
+            script {
+                if (fileExists('coverage/lcov.info')) {
+                    echo 'Test coverage report generated successfully'
+                }
+            }
         }
         failure {
             echo 'Pipeline failed!'
+            echo 'Check the console output for details'
+        }
+        unstable {
+            echo 'Pipeline completed with test failures'
+            echo 'Some tests failed, but build continued'
         }
         always {
             echo 'Cleaning up workspace...'
+            
+            // Archive test results and coverage reports
+            script {
+                try {
+                    if (fileExists('coverage')) {
+                        archiveArtifacts artifacts: 'coverage/**/*', allowEmptyArchive: true
+                        echo 'Coverage reports archived'
+                    }
+                } catch (Exception e) {
+                    echo "Could not archive artifacts: ${e.message}"
+                }
+            }
+            
             cleanWs()
         }
     }
