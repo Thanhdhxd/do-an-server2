@@ -203,9 +203,28 @@ export class TestDatabaseHelper {
     }
 
     static async teardown(prisma: TestPrismaClient): Promise<void> {
-        await prisma.$disconnect();
+        try {
+            await prisma.$disconnect();
+        } catch (error) {
+            console.warn('Warning: Could not disconnect Prisma client', error);
+        }
         
         // Clean up temp directory
+        if (this.tempDir) {
+            try {
+                rmSync(this.tempDir, { recursive: true, force: true });
+            } catch (error) {
+                console.warn('Warning: Could not clean up temp directory', error);
+            }
+        }
+        
+        // Force cleanup
+        this.tempDir = null as any;
+        this.testDatabaseUrl = null as any;
+    }
+    
+    static async cleanup(): Promise<void> {
+        // Alias for teardown
         if (this.tempDir) {
             try {
                 rmSync(this.tempDir, { recursive: true, force: true });

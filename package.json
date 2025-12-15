@@ -89,6 +89,8 @@
     "testEnvironment": "node",
     "testTimeout": 30000,
     "maxWorkers": 1,
+    "forceExit": true,
+    "detectOpenHandles": false,
     "moduleNameMapper": {
       "^src/(.*)$": "<rootDir>/$1",
       "^uuid$": "<rootDir>/../node_modules/uuid/dist/index.js"
