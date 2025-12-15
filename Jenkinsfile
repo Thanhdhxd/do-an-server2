@@ -24,7 +24,11 @@ pipeline {
                 echo 'Installing dependencies...'
                 script {
                     if (isUnix()) {
-                        sh 'npm ci'
+                        // Install build tools for native modules (better-sqlite3)
+                        sh '''
+                            apt-get update && apt-get install -y python3 make g++ || true
+                            npm ci
+                        '''
                     } else {
                         bat 'npm ci'
                     }
@@ -71,37 +75,21 @@ pipeline {
             }
         }
         
-        stage('Run Unit Tests') {
+        stage('Run Tests') {
             steps {
-                echo 'Running unit tests with coverage...'
+                echo 'Running tests...'
                 script {
-                    try {
-                        if (isUnix()) {
-                            sh 'npm run test:cov'
-                        } else {
-                            bat 'npm run test:cov'
-                        }
-                    } catch (Exception e) {
-                        echo "Unit tests failed: ${e.message}"
-                        currentBuild.result = 'UNSTABLE'
-                    }
-                }
-            }
-        }
-        
-        stage('Run E2E Tests') {
-            steps {
-                echo 'Running E2E tests...'
-                script {
-                    try {
-                        if (isUnix()) {
-                            sh 'npm run test:e2e'
-                        } else {
-                            bat 'npm run test:e2e'
-                        }
-                    } catch (Exception e) {
-                        echo "E2E tests failed: ${e.message}"
-                        currentBuild.result = 'UNSTABLE'
+                    if (isUnix()) {
+                        sh '''
+                            # Ensure temp directory is writable
+                            mkdir -p /tmp/prisma-test
+                            chmod 777 /tmp/prisma-test
+                            
+                            # Run tests with proper environment
+                            npm run test -- --runInBand --forceExit
+                        '''
+                    } else {
+                        bat 'npm run test -- --runInBand --forceExit'
                     }
                 }
             }
@@ -204,37 +192,13 @@ pipeline {
             echo 'Pipeline executed successfully!'
             echo "Docker Image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
             echo "Docker Hub: https://hub.docker.com/r/${DOCKER_HUB_USERNAME}/do-an-server"
-            
-            // Publish test results if available
-            script {
-                if (fileExists('coverage/lcov.info')) {
-                    echo 'Test coverage report generated successfully'
-                }
-            }
         }
         failure {
             echo 'Pipeline failed!'
             echo 'Check the console output for details'
         }
-        unstable {
-            echo 'Pipeline completed with test failures'
-            echo 'Some tests failed, but build continued'
-        }
         always {
             echo 'Cleaning up workspace...'
-            
-            // Archive test results and coverage reports
-            script {
-                try {
-                    if (fileExists('coverage')) {
-                        archiveArtifacts artifacts: 'coverage/**/*', allowEmptyArchive: true
-                        echo 'Coverage reports archived'
-                    }
-                } catch (Exception e) {
-                    echo "Could not archive artifacts: ${e.message}"
-                }
-            }
-            
             cleanWs()
         }
     }

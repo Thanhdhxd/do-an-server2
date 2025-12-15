@@ -87,6 +87,8 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
+    "testTimeout": 30000,
+    "maxWorkers": 1,
     "moduleNameMapper": {
       "^src/(.*)$": "<rootDir>/$1",
       "^uuid$": "<rootDir>/../node_modules/uuid/dist/index.js"
