@@ -1,264 +1,391 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { JoinreqService } from '../services/joinreq.service';
 import { JoinreqRepo } from '../repos/joinreq.repo';
-import { PrismaService } from 'src/shared/services/prisma.service';
 import { SharedClassroomRepo } from 'src/shared/repos/shared-classroom.repo';
 import { SharedClrStdRepo } from 'src/shared/repos/shared-clrstd.repo';
 import { SharedJreqRepo } from 'src/shared/repos/shared-join-req.repo';
-import { TestDatabaseHelper } from 'src/shared/utils/test-db-helper';
+import { PrismaService } from 'src/shared/services/prisma.service';
 import { JoinRequestStatus, Role } from '@prisma/client';
-import { UnprocessableEntityException } from '@nestjs/common';
 import { EnumOrder } from 'src/shared/constants/enum-order.constant';
 import { JoinreqClassroomSortByEnum } from '../dtos/queries/get-joinreq-classrooms.dto';
+import { UnprocessableEntityException } from '@nestjs/common';
+import { TestDatabaseHelper } from 'src/shared/utils/test-database.helper';
+import { PrismaClient as TestPrismaClient } from '@prisma/test-client';
 
-describe('Join Request Integration Flow', () => {
+/**
+ * Integration Test - SQLite In-Memory Database
+ * 
+ * Using real SQLite database with schema.test.prisma
+ */
+
+describe('Joinreq Integration Flow - SQLite In-Memory', () => {
+    let module: TestingModule;
     let service: JoinreqService;
-    let prisma: PrismaService;
-    let testData: any;
+    let prismaClient: TestPrismaClient;
+
+    let adminId: number;
+    let student1Id: number;
+    let student2Id: number;
+    let classroom1Id: number;
+    let classroom2Id: number;
 
     beforeAll(async () => {
-        // Khởi tạo in-memory database
-        const dbClient = await TestDatabaseHelper.setup();
+        // Setup SQLite in-memory database
+        prismaClient = await TestDatabaseHelper.setup();
 
-        // Tạo testing module
-        const module: TestingModule = await Test.createTestingModule({
+        // Seed initial data
+        const seedData = await TestDatabaseHelper.seedData(prismaClient);
+        adminId = seedData.users.admin.id;
+        student1Id = seedData.users.student1.id;
+        student2Id = seedData.users.student2.id;
+        classroom1Id = seedData.classrooms.classroom1.id;
+        classroom2Id = seedData.classrooms.classroom2.id;
+
+        // Create test module with real database
+        module = await Test.createTestingModule({
             providers: [
                 JoinreqService,
                 JoinreqRepo,
-                {
-                    provide: 'IJoinreqService',
-                    useClass: JoinreqService,
-                },
+                SharedClassroomRepo,
+                SharedClrStdRepo,
+                SharedJreqRepo,
                 {
                     provide: 'IJoinreqRepo',
                     useClass: JoinreqRepo,
                 },
                 {
                     provide: PrismaService,
-                    useValue: dbClient,
+                    useValue: prismaClient, // Use real Prisma client
                 },
-                SharedClassroomRepo,
-                SharedClrStdRepo,
-                SharedJreqRepo,
             ],
         }).compile();
 
         service = module.get<JoinreqService>(JoinreqService);
-        prisma = module.get<PrismaService>(PrismaService);
-
-        // Seed dữ liệu test
-        testData = await TestDatabaseHelper.seedTestData();
     });
 
     afterAll(async () => {
-        await TestDatabaseHelper.teardown();
+        await TestDatabaseHelper.teardown(prismaClient);
+        await module.close();
     });
 
     beforeEach(async () => {
-        // Clear join requests và classroom students trước mỗi test
-        await prisma.joinRequest.deleteMany();
-        await prisma.classroomStudent.deleteMany();
+        // Clear joinRequest and classroomStudent data before each test
+        await prismaClient.joinRequest.deleteMany({});
+        await prismaClient.classroomStudent.deleteMany({});
     });
 
-    describe('Luồng 1: Học sinh gửi yêu cầu tham gia, admin duyệt', () => {
-        it('Nên cho phép học sinh gửi yêu cầu tham gia lớp học', async () => {
-            // Arrange
-            const studentId = testData.student1.id;
-            const classroomId = testData.classroom.id;
+    describe('Complete Join Request Flow', () => {
+        it('should complete full workflow: Student1 request → Admin approve → Student1 join classroom', async () => {
+            // Step 1: Student1 gửi yêu cầu tham gia
+            const joinRequest = await service.createJoinRequest(student1Id, { classroomId: classroom1Id });
 
-            // Act
-            const joinRequest = await service.createJoinRequest(studentId, {
-                classroomId,
-            });
-
-            // Assert
-            expect(joinRequest).toBeDefined();
-            expect(joinRequest.studentId).toBe(studentId);
-            expect(joinRequest.classroomId).toBe(classroomId);
             expect(joinRequest.status).toBe(JoinRequestStatus.pending);
+            expect(joinRequest.studentId).toBe(student1Id);
+            expect(joinRequest.classroomId).toBe(classroom1Id);
             expect(joinRequest.requestedAt).toBeInstanceOf(Date);
-        });
+            expect(joinRequest.handledAt).toBeNull();
 
-        it('Không nên cho phép gửi yêu cầu trùng lặp khi đang pending', async () => {
-            // Arrange
-            const studentId = testData.student1.id;
-            const classroomId = testData.classroom.id;
-
-            // Tạo yêu cầu đầu tiên
-            await service.createJoinRequest(studentId, { classroomId });
-
-            // Act & Assert
-            await expect(
-                service.createJoinRequest(studentId, { classroomId })
-            ).rejects.toThrow(UnprocessableEntityException);
-        });
-
-        it('Nên cho phép gửi lại yêu cầu sau khi bị reject', async () => {
-            // Arrange
-            const studentId = testData.student1.id;
-            const classroomId = testData.classroom.id;
-
-            // Tạo và reject yêu cầu
-            const firstRequest = await service.createJoinRequest(studentId, { classroomId });
-            await service.rejectJoinRequest(firstRequest.id);
-
-            // Act - Gửi lại yêu cầu
-            const newRequest = await service.createJoinRequest(studentId, { classroomId });
-
-            // Assert
-            expect(newRequest).toBeDefined();
-            expect(newRequest.status).toBe(JoinRequestStatus.pending);
-            expect(newRequest.requestedAt).toBeInstanceOf(Date);
-        });
-
-        it('Admin nên duyệt được yêu cầu tham gia', async () => {
-            // Arrange
-            const studentId = testData.student1.id;
-            const classroomId = testData.classroom.id;
-
-            // Học sinh gửi yêu cầu
-            const joinRequest = await service.createJoinRequest(studentId, { classroomId });
-
-            // Act - Admin duyệt yêu cầu
+            // Step 2: Admin approve yêu cầu
             const approvedRequest = await service.approveJoinRequest(joinRequest.id);
 
-            // Assert
             expect(approvedRequest.status).toBe(JoinRequestStatus.approved);
             expect(approvedRequest.handledAt).toBeInstanceOf(Date);
 
-            // Kiểm tra học sinh đã được thêm vào lớp
-            const classroomStudent = await prisma.classroomStudent.findUnique({
+            // Verify ClassroomStudent được tạo
+            const classroomStudent = await prismaClient.classroomStudent.findUnique({
                 where: {
                     classroomId_studentId: {
-                        classroomId,
-                        studentId,
+                        classroomId: classroom1Id,
+                        studentId: student1Id,
                     },
                 },
             });
 
             expect(classroomStudent).toBeDefined();
-            expect(classroomStudent!.isActive).toBe(true);
+            expect(classroomStudent?.deletedAt).toBeNull();
+
+            // Step 3: Verify Student1 đã tham gia classroom
+            const viewResult = await service.studentViewClassrooms(student1Id, {
+                page: 1,
+                limit: 10,
+                order: EnumOrder.DESC,
+                sortBy: JoinreqClassroomSortByEnum.CREATED_AT,
+            });
+
+            const joinedClassroom = viewResult.data.find((c) => c.id === classroom1Id);
+            expect(joinedClassroom).toBeDefined();
+            expect(joinedClassroom?.isJoined).toBe(true);
+            expect(joinedClassroom?.joinRequest).toBeNull();
         });
 
-        it('Admin nên từ chối được yêu cầu tham gia', async () => {
-            // Arrange
-            const studentId = testData.student1.id;
-            const classroomId = testData.classroom.id;
+        it('should prevent duplicate join requests', async () => {
+            // Tạo join request đầu tiên
+            await service.createJoinRequest(student1Id, { classroomId: classroom1Id });
 
-            // Học sinh gửi yêu cầu
-            const joinRequest = await service.createJoinRequest(studentId, { classroomId });
+            // Thử tạo duplicate request
+            await expect(
+                service.createJoinRequest(student1Id, { classroomId: classroom1Id })
+            ).rejects.toThrow(UnprocessableEntityException);
+            await expect(
+                service.createJoinRequest(student1Id, { classroomId: classroom1Id })
+            ).rejects.toThrow('Yêu cầu tham gia đã tồn tại');
+        });
 
-            // Act - Admin từ chối yêu cầu
+        it('should prevent joining deleted classroom', async () => {
+            // Soft delete classroom2
+            await prismaClient.classroom.update({
+                where: { id: classroom2Id },
+                data: { deletedAt: new Date() },
+            });
+
+            await expect(
+                service.createJoinRequest(student1Id, { classroomId: classroom2Id })
+            ).rejects.toThrow(UnprocessableEntityException);
+
+            // Restore classroom2 for other tests
+            await prismaClient.classroom.update({
+                where: { id: classroom2Id },
+                data: { deletedAt: null },
+            });
+        });
+    });
+
+    describe('Reject Join Request Flow', () => {
+        it('should reject join request and allow resending', async () => {
+            // Step 1: Student2 gửi yêu cầu
+            const joinRequest = await service.createJoinRequest(student2Id, { classroomId: classroom2Id });
+
+            expect(joinRequest.status).toBe(JoinRequestStatus.pending);
+
+            // Step 2: Admin reject yêu cầu
             const rejectedRequest = await service.rejectJoinRequest(joinRequest.id);
 
-            // Assert
             expect(rejectedRequest.status).toBe(JoinRequestStatus.rejected);
             expect(rejectedRequest.handledAt).toBeInstanceOf(Date);
 
-            // Kiểm tra học sinh không được thêm vào lớp
-            const classroomStudent = await prisma.classroomStudent.findUnique({
+            // Step 3: ClassroomStudent không được tạo
+            const classroomStudent = await prismaClient.classroomStudent.findUnique({
                 where: {
                     classroomId_studentId: {
-                        classroomId,
-                        studentId,
+                        classroomId: classroom2Id,
+                        studentId: student2Id,
                     },
                 },
             });
 
             expect(classroomStudent).toBeNull();
+
+            // Step 4: Student2 có thể gửi lại yêu cầu (reuses same request, updates status to pending)
+            const newRequest = await service.createJoinRequest(student2Id, { classroomId: classroom2Id });
+
+            expect(newRequest.status).toBe(JoinRequestStatus.pending);
+            expect(newRequest.id).toBe(rejectedRequest.id); // Same request ID, just updated
+            expect(newRequest.handledAt).toBeNull(); // handledAt reset to null
         });
+    });
 
-        it('Học sinh nên xem được danh sách lớp học và trạng thái yêu cầu', async () => {
-            // Arrange
-            const studentId = testData.student1.id;
-            const classroomId = testData.classroom.id;
-
-            // Học sinh gửi yêu cầu
-            await service.createJoinRequest(studentId, { classroomId });
-
-            // Act - Học sinh xem danh sách lớp học
-            const classrooms = await service.studentViewClassrooms(studentId, {
-                page: 1,
-                limit: 10,
-                order: EnumOrder.ASC,
-                sortBy: JoinreqClassroomSortByEnum.NAME,
+    describe('View Classrooms', () => {
+        it('should show isJoined = true for joined classrooms', async () => {
+            // Student1 join classroom1
+            await prismaClient.classroomStudent.create({
+                data: {
+                    classroomId: classroom1Id,
+                    studentId: student1Id,
+                },
             });
 
-            // Assert
-            expect(classrooms.data).toHaveLength(1);
-            const classroom = classrooms.data[0];
-            expect(classroom.id).toBe(classroomId);
-            expect(classroom.isJoined).toBe(false);
-            expect(classroom.joinRequest).toBeDefined();
-            expect(classroom.joinRequest!.status).toBe(JoinRequestStatus.pending);
-        });
-
-        it('Học sinh nên xem được danh sách lớp đã tham gia sau khi được duyệt', async () => {
-            // Arrange
-            const studentId = testData.student1.id;
-            const classroomId = testData.classroom.id;
-
-            // Học sinh gửi yêu cầu và được duyệt
-            const joinRequest = await service.createJoinRequest(studentId, { classroomId });
-            await service.approveJoinRequest(joinRequest.id);
-
-            // Act - Học sinh xem danh sách lớp đã tham gia
-            const joinedClassrooms = await service.studentViewJoinedClassrooms(studentId, {
+            const result = await service.studentViewClassrooms(student1Id, {
                 page: 1,
                 limit: 10,
-                order: EnumOrder.ASC,
-                sortBy: JoinreqClassroomSortByEnum.NAME,
+                order: EnumOrder.DESC,
+                sortBy: JoinreqClassroomSortByEnum.CREATED_AT,
             });
 
-            // Assert
-            expect(joinedClassrooms.data).toHaveLength(1);
-            expect(joinedClassrooms.data[0].id).toBe(classroomId);
+            const classroom = result.data.find((c) => c.id === classroom1Id);
+            expect(classroom).toBeDefined();
+            expect(classroom?.isJoined).toBe(true);
         });
 
-        it('Học sinh nên rời khỏi lớp học được', async () => {
-            // Arrange
-            const studentId = testData.student1.id;
-            const classroomId = testData.classroom.id;
+        it('should show joinRequest info for pending requests', async () => {
+            // Create pending join request
+            const joinRequest = await prismaClient.joinRequest.create({
+                data: {
+                    studentId: student1Id,
+                    classroomId: classroom2Id,
+                    status: JoinRequestStatus.pending,
+                    requestedAt: new Date(),
+                },
+            });
 
-            // Học sinh gửi yêu cầu và được duyệt
-            const joinRequest = await service.createJoinRequest(studentId, { classroomId });
-            await service.approveJoinRequest(joinRequest.id);
+            const result = await service.studentViewClassrooms(student1Id, {
+                page: 1,
+                limit: 10,
+                order: EnumOrder.DESC,
+                sortBy: JoinreqClassroomSortByEnum.CREATED_AT,
+            });
 
-            // Act - Học sinh rời lớp
-            const result = await service.leaveClassroom(studentId, classroomId);
+            const classroom = result.data.find((c) => c.id === classroom2Id);
+            expect(classroom).toBeDefined();
+            expect(classroom?.joinRequest).toBeDefined();
+            expect(classroom?.joinRequest?.status).toBe(JoinRequestStatus.pending);
+        });
 
-            // Assert
+        it('should show isJoined = false and no joinRequest for classrooms not joined', async () => {
+            const result = await service.studentViewClassrooms(student1Id, {
+                page: 1,
+                limit: 10,
+                order: EnumOrder.DESC,
+                sortBy: JoinreqClassroomSortByEnum.CREATED_AT,
+            });
+
+            const classroom = result.data.find((c) => c.id === classroom2Id);
+            expect(classroom).toBeDefined();
+            expect(classroom?.isJoined).toBe(false);
+            expect(classroom?.joinRequest).toBeNull();
+        });
+    });
+
+    describe('View Joined Classrooms', () => {
+        it('should return only joined classrooms', async () => {
+            // Student1 join classroom1
+            await prismaClient.classroomStudent.create({
+                data: {
+                    classroomId: classroom1Id,
+                    studentId: student1Id,
+                },
+            });
+
+            const result = await service.studentViewJoinedClassrooms(student1Id, {
+                page: 1,
+                limit: 10,
+                order: EnumOrder.DESC,
+                sortBy: JoinreqClassroomSortByEnum.CREATED_AT,
+            });
+
+            expect(result.data).toHaveLength(1);
+            expect(result.data[0].id).toBe(classroom1Id);
+        });
+
+        it('should not return classrooms with pending or rejected requests', async () => {
+            // Create pending request only
+            await prismaClient.joinRequest.create({
+                data: {
+                    studentId: student1Id,
+                    classroomId: classroom1Id,
+                    status: JoinRequestStatus.pending,
+                    requestedAt: new Date(),
+                },
+            });
+
+            const result = await service.studentViewJoinedClassrooms(student1Id, {
+                page: 1,
+                limit: 10,
+                order: EnumOrder.DESC,
+                sortBy: JoinreqClassroomSortByEnum.CREATED_AT,
+            });
+
+            expect(result.data).toHaveLength(0);
+        });
+    });
+
+    describe('Leave Classroom', () => {
+        it('should leave classroom successfully', async () => {
+            // Student1 join classroom1 first
+            await prismaClient.classroomStudent.create({
+                data: {
+                    classroomId: classroom1Id,
+                    studentId: student1Id,
+                },
+            });
+
+            const result = await service.leaveClassroom(student1Id, classroom1Id);
+
             expect(result.message).toBe('Rời lớp học thành công');
+
+            // Verify soft delete
+            const classroomStudent = await prismaClient.classroomStudent.findUnique({
+                where: {
+                    classroomId_studentId: {
+                        classroomId: classroom1Id,
+                        studentId: student1Id,
+                    },
+                },
+            });
+
+            expect(classroomStudent?.deletedAt).not.toBeNull();
         });
 
-        it('Không nên duyệt yêu cầu đã được duyệt', async () => {
-            // Arrange
-            const studentId = testData.student1.id;
-            const classroomId = testData.classroom.id;
+        it('should allow rejoining after leaving', async () => {
+            // Student1 join classroom1
+            await prismaClient.classroomStudent.create({
+                data: {
+                    classroomId: classroom1Id,
+                    studentId: student1Id,
+                },
+            });
 
-            // Học sinh gửi yêu cầu và được duyệt
-            const joinRequest = await service.createJoinRequest(studentId, { classroomId });
-            await service.approveJoinRequest(joinRequest.id);
+            // Leave classroom
+            await service.leaveClassroom(student1Id, classroom1Id);
 
-            // Act & Assert - Duyệt lại lần nữa
-            await expect(
-                service.approveJoinRequest(joinRequest.id)
-            ).rejects.toThrow(UnprocessableEntityException);
+            // Rejoin
+            const joinRequest = await service.createJoinRequest(student1Id, { classroomId: classroom1Id });
+
+            expect(joinRequest.status).toBe(JoinRequestStatus.pending);
         });
+    });
 
-        it('Không nên từ chối yêu cầu đã được duyệt', async () => {
-            // Arrange
-            const studentId = testData.student1.id;
-            const classroomId = testData.classroom.id;
+    describe('Restore Deleted ClassroomStudent', () => {
+        it('should restore ClassroomStudent when approving after student left', async () => {
+            // Student1 join classroom1
+            await prismaClient.classroomStudent.create({
+                data: {
+                    classroomId: classroom1Id,
+                    studentId: student1Id,
+                },
+            });
 
-            // Học sinh gửi yêu cầu và được duyệt
-            const joinRequest = await service.createJoinRequest(studentId, { classroomId });
+            // Student1 leave classroom (soft delete)
+            await prismaClient.classroomStudent.update({
+                where: {
+                    classroomId_studentId: {
+                        classroomId: classroom1Id,
+                        studentId: student1Id,
+                    },
+                },
+                data: { deletedAt: new Date() },
+            });
+
+            // Student1 request to rejoin
+            const joinRequest = await service.createJoinRequest(student1Id, { classroomId: classroom1Id });
+
+            // Admin approve
             await service.approveJoinRequest(joinRequest.id);
 
-            // Act & Assert - Từ chối yêu cầu đã duyệt
-            await expect(
-                service.rejectJoinRequest(joinRequest.id)
-            ).rejects.toThrow(UnprocessableEntityException);
+            // Verify ClassroomStudent restored (deletedAt = null)
+            const classroomStudent = await prismaClient.classroomStudent.findUnique({
+                where: {
+                    classroomId_studentId: {
+                        classroomId: classroom1Id,
+                        studentId: student1Id,
+                    },
+                },
+            });
+
+            expect(classroomStudent).toBeDefined();
+            expect(classroomStudent?.deletedAt).toBeNull();
+        });
+    });
+
+    describe('Error Cases', () => {
+        it('should prevent approving already approved request', async () => {
+            // Create and approve request
+            const joinRequest = await service.createJoinRequest(student1Id, { classroomId: classroom1Id });
+            await service.approveJoinRequest(joinRequest.id);
+
+            // Try to approve again
+            await expect(service.approveJoinRequest(joinRequest.id)).rejects.toThrow(UnprocessableEntityException);
+            await expect(service.approveJoinRequest(joinRequest.id)).rejects.toThrow('Yêu cầu tham gia đã được chấp thuận từ trước');
         });
     });
 });
+

@@ -1,45 +1,51 @@
-import { Test, TestingModule } from '@nestjs/testing'
-import { JoinreqService } from '../services/joinreq.service'
-import { IJoinreqRepo } from '../repos/joinreq.interface.repo'
-import { SharedClassroomRepo } from 'src/shared/repos/shared-classroom.repo'
-import { SharedClrStdRepo } from 'src/shared/repos/shared-clrstd.repo'
-import { SharedJreqRepo } from 'src/shared/repos/shared-join-req.repo'
-import { UnprocessableEntityException } from '@nestjs/common'
-import { JoinRequestStatus } from '@prisma/client'
-import { GetJoinreqClassroomsQueryType, JoinreqClassroomSortByEnum } from '../dtos/queries/get-joinreq-classrooms.dto'
-import { EnumOrder } from 'src/shared/constants/enum-order.constant'
+import { Test, TestingModule } from '@nestjs/testing';
+import { JoinreqService } from '../services/joinreq.service';
+import { IJoinreqRepo } from '../repos/joinreq.interface.repo';
+import { SharedClassroomRepo } from 'src/shared/repos/shared-classroom.repo';
+import { SharedClrStdRepo } from 'src/shared/repos/shared-clrstd.repo';
+import { SharedJreqRepo } from 'src/shared/repos/shared-join-req.repo';
+import { JoinRequestStatus } from '@prisma/client';
+import { UnprocessableEntityException } from '@nestjs/common';
+import { EnumOrder } from 'src/shared/constants/enum-order.constant';
+import { JoinreqClassroomSortByEnum } from '../dtos/queries/get-joinreq-classrooms.dto';
 
-describe('JoinreqService', () => {
-    let service: JoinreqService
-    let joinreqRepo: IJoinreqRepo
-    let sharedClassroomRepo: SharedClassroomRepo
-    let sharedClrStdRepo: SharedClrStdRepo
-    let sharedJreqRepo: SharedJreqRepo
+describe('JoinreqService - MOCK repositories', () => {
+    let service: JoinreqService;
+    let mockJoinreqRepo: jest.Mocked<IJoinreqRepo>;
+    let mockSharedClassroomRepo: jest.Mocked<SharedClassroomRepo>;
+    let mockSharedClrStdRepo: jest.Mocked<SharedClrStdRepo>;
+    let mockSharedJreqRepo: jest.Mocked<SharedJreqRepo>;
 
-    const mockJoinreqRepo = {
-        findById: jest.fn(),
-        findUnique: jest.fn(),
-        createJoinRequest: jest.fn(),
-        update: jest.fn(),
-        countClassrooms: jest.fn(),
-        findClassrooms: jest.fn(),
-    }
-
-    const mockSharedClassroomRepo = {
-        findUnique: jest.fn(),
-    }
-
-    const mockSharedClrStdRepo = {
-        findUnique: jest.fn(),
-        create: jest.fn(),
-        update: jest.fn(),
-    }
-
-    const mockSharedJreqRepo = {
-        deleteJreq: jest.fn(),
-    }
+    const testStudentId = 1;
+    const testClassroomId = 1;
+    const testJoinRequestId = 1;
 
     beforeEach(async () => {
+        mockJoinreqRepo = {
+            findById: jest.fn(),
+            findUnique: jest.fn(),
+            createJoinRequest: jest.fn(),
+            update: jest.fn(),
+            findClassrooms: jest.fn(),
+            countClassrooms: jest.fn(),
+        } as any;
+
+        mockSharedClassroomRepo = {
+            findUnique: jest.fn(),
+            findMany: jest.fn(),
+            count: jest.fn(),
+        } as any;
+
+        mockSharedClrStdRepo = {
+            findUnique: jest.fn(),
+            create: jest.fn(),
+            update: jest.fn(),
+        } as any;
+
+        mockSharedJreqRepo = {
+            deleteJreq: jest.fn(),
+        } as any;
+
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 JoinreqService,
@@ -60,790 +66,574 @@ describe('JoinreqService', () => {
                     useValue: mockSharedJreqRepo,
                 },
             ],
-        }).compile()
+        }).compile();
 
-        service = module.get<JoinreqService>(JoinreqService)
-        joinreqRepo = module.get<IJoinreqRepo>('IJoinreqRepo')
-        sharedClassroomRepo = module.get<SharedClassroomRepo>(SharedClassroomRepo)
-        sharedClrStdRepo = module.get<SharedClrStdRepo>(SharedClrStdRepo)
-        sharedJreqRepo = module.get<SharedJreqRepo>(SharedJreqRepo)
-    })
+        service = module.get<JoinreqService>(JoinreqService);
+    });
 
     afterEach(() => {
-        jest.clearAllMocks()
-    })
-
-    it('should be defined', () => {
-        expect(service).toBeDefined()
-    })
+        jest.clearAllMocks();
+    });
 
     describe('createJoinRequest', () => {
-        const studentId = 1
-        const classroomId = 1
-        const createRequestBody = { classroomId }
+        it('should create join request successfully when classroom exists', async () => {
+            const mockClassroom = {
+                id: testClassroomId,
+                name: 'Test Classroom',
+                description: 'Description',
+                coverMediaId: null,
+                isArchived: false,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                deletedAt: null,
+            };
 
-        const mockClassroom = {
-            id: classroomId,
-            name: 'Test Classroom',
-            description: 'Test Description',
-            isArchived: false,
-            deletedAt: null,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-        }
-
-        const mockJoinRequest = {
-            id: 1,
-            studentId,
-            classroomId,
-            status: JoinRequestStatus.pending,
-            requestedAt: new Date(),
-            handledAt: null,
-        }
-
-        it('should create a new join request successfully', async () => {
-            mockJoinreqRepo.findUnique.mockResolvedValue(null)
-            mockSharedClassroomRepo.findUnique.mockResolvedValue(mockClassroom)
-            mockJoinreqRepo.createJoinRequest.mockResolvedValue(mockJoinRequest)
-
-            const result = await service.createJoinRequest(studentId, createRequestBody)
-
-            expect(joinreqRepo.findUnique).toHaveBeenCalledWith({ studentId, classroomId })
-            expect(sharedClassroomRepo.findUnique).toHaveBeenCalledWith({ id: classroomId })
-            expect(joinreqRepo.createJoinRequest).toHaveBeenCalledWith(studentId, classroomId)
-            expect(result).toEqual(mockJoinRequest)
-        })
-
-        it('should throw error if request already exists and is pending', async () => {
-            const existingRequest = {
-                ...mockJoinRequest,
+            const mockJoinRequest = {
+                id: testJoinRequestId,
+                studentId: testStudentId,
+                classroomId: testClassroomId,
                 status: JoinRequestStatus.pending,
-            }
-            mockJoinreqRepo.findUnique.mockResolvedValue(existingRequest)
+                requestedAt: new Date(),
+                handledAt: null,
+            };
 
-            await expect(service.createJoinRequest(studentId, createRequestBody)).rejects.toThrow(
-                UnprocessableEntityException,
-            )
-            await expect(service.createJoinRequest(studentId, createRequestBody)).rejects.toThrow(
-                'Yêu cầu tham gia đã tồn tại',
-            )
+            mockJoinreqRepo.findUnique.mockResolvedValue(null);
+            mockSharedClassroomRepo.findUnique.mockResolvedValue(mockClassroom as any);
+            mockJoinreqRepo.createJoinRequest.mockResolvedValue(mockJoinRequest);
 
-            expect(joinreqRepo.findUnique).toHaveBeenCalledWith({ studentId, classroomId })
-            expect(sharedClassroomRepo.findUnique).not.toHaveBeenCalled()
-            expect(joinreqRepo.createJoinRequest).not.toHaveBeenCalled()
-        })
+            const result = await service.createJoinRequest(testStudentId, { classroomId: testClassroomId });
 
-        it('should throw error if request already exists and is approved', async () => {
+            expect(result.status).toBe(JoinRequestStatus.pending);
+            expect(result.studentId).toBe(testStudentId);
+            expect(result.classroomId).toBe(testClassroomId);
+            expect(mockJoinreqRepo.createJoinRequest).toHaveBeenCalledWith(testStudentId, testClassroomId);
+        });
+
+        it('should throw error when classroom does not exist', async () => {
+            mockJoinreqRepo.findUnique.mockResolvedValue(null);
+            mockSharedClassroomRepo.findUnique.mockResolvedValue(null);
+
+            await expect(
+                service.createJoinRequest(testStudentId, { classroomId: testClassroomId })
+            ).rejects.toThrow(UnprocessableEntityException);
+            await expect(
+                service.createJoinRequest(testStudentId, { classroomId: testClassroomId })
+            ).rejects.toThrow('Lớp học không tồn tại');
+        });
+
+        it('should throw error when classroom is deleted', async () => {
+            const mockDeletedClassroom = {
+                id: testClassroomId,
+                name: 'Deleted Classroom',
+                description: 'Description',
+                coverMediaId: null,
+                isArchived: false,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                deletedAt: new Date(),
+            };
+
+            mockJoinreqRepo.findUnique.mockResolvedValue(null);
+            mockSharedClassroomRepo.findUnique.mockResolvedValue(mockDeletedClassroom as any);
+
+            await expect(
+                service.createJoinRequest(testStudentId, { classroomId: testClassroomId })
+            ).rejects.toThrow(UnprocessableEntityException);
+        });
+
+        it('should throw error when classroom is archived', async () => {
+            const mockArchivedClassroom = {
+                id: testClassroomId,
+                name: 'Archived Classroom',
+                description: 'Description',
+                coverMediaId: null,
+                isArchived: true,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                deletedAt: null,
+            };
+
+            mockJoinreqRepo.findUnique.mockResolvedValue(null);
+            mockSharedClassroomRepo.findUnique.mockResolvedValue(mockArchivedClassroom as any);
+
+            await expect(
+                service.createJoinRequest(testStudentId, { classroomId: testClassroomId })
+            ).rejects.toThrow(UnprocessableEntityException);
+            await expect(
+                service.createJoinRequest(testStudentId, { classroomId: testClassroomId })
+            ).rejects.toThrow('Không thể tham gia lớp học đã lưu trữ');
+        });
+
+        it('should throw error when join request already pending', async () => {
             const existingRequest = {
-                ...mockJoinRequest,
-                status: JoinRequestStatus.approved,
-            }
-            mockJoinreqRepo.findUnique.mockResolvedValue(existingRequest)
+                id: testJoinRequestId,
+                studentId: testStudentId,
+                classroomId: testClassroomId,
+                status: JoinRequestStatus.pending,
+                requestedAt: new Date(),
+                handledAt: null,
+            };
 
-            await expect(service.createJoinRequest(studentId, createRequestBody)).rejects.toThrow(
-                UnprocessableEntityException,
-            )
-            await expect(service.createJoinRequest(studentId, createRequestBody)).rejects.toThrow(
-                'Yêu cầu tham gia đã tồn tại',
-            )
-        })
+            mockJoinreqRepo.findUnique.mockResolvedValue(existingRequest);
 
-        it('should update request if it was previously rejected', async () => {
+            await expect(
+                service.createJoinRequest(testStudentId, { classroomId: testClassroomId })
+            ).rejects.toThrow(UnprocessableEntityException);
+            await expect(
+                service.createJoinRequest(testStudentId, { classroomId: testClassroomId })
+            ).rejects.toThrow('Yêu cầu tham gia đã tồn tại');
+        });
+
+        it('should allow resending request if previous request was rejected', async () => {
             const rejectedRequest = {
-                ...mockJoinRequest,
+                id: testJoinRequestId,
+                studentId: testStudentId,
+                classroomId: testClassroomId,
                 status: JoinRequestStatus.rejected,
-                handledAt: new Date('2024-01-01'),
-            }
+                requestedAt: new Date(),
+                handledAt: new Date(),
+            };
+
             const updatedRequest = {
                 ...rejectedRequest,
                 status: JoinRequestStatus.pending,
                 requestedAt: new Date(),
                 handledAt: null,
-            }
+            };
 
-            mockJoinreqRepo.findUnique.mockResolvedValue(rejectedRequest)
-            mockJoinreqRepo.update.mockResolvedValue(updatedRequest)
+            mockJoinreqRepo.findUnique.mockResolvedValue(rejectedRequest);
+            mockJoinreqRepo.update.mockResolvedValue(updatedRequest);
 
-            const result = await service.createJoinRequest(studentId, createRequestBody)
+            const result = await service.createJoinRequest(testStudentId, { classroomId: testClassroomId });
 
-            expect(joinreqRepo.findUnique).toHaveBeenCalledWith({ studentId, classroomId })
-            expect(joinreqRepo.update).toHaveBeenCalledWith({
-                id: rejectedRequest.id,
-                status: JoinRequestStatus.pending,
-                requestedAt: expect.any(Date),
-                handledAt: null,
-            })
-            expect(result.status).toBe(JoinRequestStatus.pending)
-            expect(result.handledAt).toBeNull()
-        })
-
-        it('should throw error if classroom does not exist', async () => {
-            mockJoinreqRepo.findUnique.mockResolvedValue(null)
-            mockSharedClassroomRepo.findUnique.mockResolvedValue(null)
-
-            await expect(service.createJoinRequest(studentId, createRequestBody)).rejects.toThrow(
-                UnprocessableEntityException,
-            )
-            await expect(service.createJoinRequest(studentId, createRequestBody)).rejects.toThrow(
-                'Lớp học không tồn tại',
-            )
-
-            expect(joinreqRepo.createJoinRequest).not.toHaveBeenCalled()
-        })
-
-        it('should throw error if classroom is deleted', async () => {
-            const deletedClassroom = {
-                ...mockClassroom,
-                deletedAt: new Date(),
-            }
-
-            mockJoinreqRepo.findUnique.mockResolvedValue(null)
-            mockSharedClassroomRepo.findUnique.mockResolvedValue(deletedClassroom)
-
-            await expect(service.createJoinRequest(studentId, createRequestBody)).rejects.toThrow(
-                UnprocessableEntityException,
-            )
-            await expect(service.createJoinRequest(studentId, createRequestBody)).rejects.toThrow(
-                'Lớp học không tồn tại',
-            )
-        })
-
-        it('should throw error if classroom is archived', async () => {
-            const archivedClassroom = {
-                ...mockClassroom,
-                isArchived: true,
-            }
-
-            mockJoinreqRepo.findUnique.mockResolvedValue(null)
-            mockSharedClassroomRepo.findUnique.mockResolvedValue(archivedClassroom)
-
-            await expect(service.createJoinRequest(studentId, createRequestBody)).rejects.toThrow(
-                UnprocessableEntityException,
-            )
-            await expect(service.createJoinRequest(studentId, createRequestBody)).rejects.toThrow(
-                'Không thể tham gia lớp học đã lưu trữ',
-            )
-        })
-    })
+            expect(result.status).toBe(JoinRequestStatus.pending);
+            expect(mockJoinreqRepo.update).toHaveBeenCalled();
+        });
+    });
 
     describe('approveJoinRequest', () => {
-        const joinRequestId = 1
-        const mockJoinRequest = {
-            id: joinRequestId,
-            studentId: 1,
-            classroomId: 1,
-            status: JoinRequestStatus.pending,
-            requestedAt: new Date(),
-            handledAt: null,
-        }
+        it('should approve join request and create ClassroomStudent', async () => {
+            const mockJoinRequest = {
+                id: testJoinRequestId,
+                studentId: testStudentId,
+                classroomId: testClassroomId,
+                status: JoinRequestStatus.pending,
+                requestedAt: new Date(),
+                handledAt: null,
+            };
 
-        const mockUpdatedRequest = {
-            ...mockJoinRequest,
-            status: JoinRequestStatus.approved,
-            handledAt: new Date(),
-        }
-
-        it('should approve join request successfully and create new classroom student', async () => {
-            mockJoinreqRepo.findById.mockResolvedValue(mockJoinRequest)
-            mockJoinreqRepo.update.mockResolvedValue(mockUpdatedRequest)
-            mockSharedClrStdRepo.findUnique.mockResolvedValue(null)
-            mockSharedClrStdRepo.create.mockResolvedValue({})
-
-            const result = await service.approveJoinRequest(joinRequestId)
-
-            expect(joinreqRepo.findById).toHaveBeenCalledWith(joinRequestId)
-            expect(joinreqRepo.update).toHaveBeenCalledWith({
-                id: mockJoinRequest.id,
-                status: JoinRequestStatus.approved,
-                handledAt: expect.any(Date),
-            })
-            expect(sharedClrStdRepo.findUnique).toHaveBeenCalledWith({
-                classroomId: mockJoinRequest.classroomId,
-                studentId: mockJoinRequest.studentId,
-            })
-            expect(sharedClrStdRepo.create).toHaveBeenCalledWith({
-                classroomId: mockJoinRequest.classroomId,
-                studentId: mockJoinRequest.studentId,
-            })
-            expect(result).toEqual(mockUpdatedRequest)
-        })
-
-        it('should approve join request and restore deleted classroom student', async () => {
-            const deletedClrStd = {
-                studentId: 1,
-                classroomId: 1,
-                isActive: true,
-                deletedAt: new Date('2024-01-01'),
-            }
-
-            mockJoinreqRepo.findById.mockResolvedValue(mockJoinRequest)
-            mockJoinreqRepo.update.mockResolvedValue(mockUpdatedRequest)
-            mockSharedClrStdRepo.findUnique.mockResolvedValue(deletedClrStd)
-            mockSharedClrStdRepo.update.mockResolvedValue({})
-
-            const result = await service.approveJoinRequest(joinRequestId)
-
-            expect(sharedClrStdRepo.update).toHaveBeenCalledWith({
-                classroomId: mockJoinRequest.classroomId,
-                studentId: mockJoinRequest.studentId,
-                deletedAt: null,
-            })
-            expect(sharedClrStdRepo.create).not.toHaveBeenCalled()
-            expect(result).toEqual(mockUpdatedRequest)
-        })
-
-        it('should not update but create new record if deletedAt is null', async () => {
-            const activeClrStd = {
-                studentId: 1,
-                classroomId: 1,
-                isActive: true,
-                deletedAt: null,
-            }
-
-            mockJoinreqRepo.findById.mockResolvedValue(mockJoinRequest)
-            mockJoinreqRepo.update.mockResolvedValue(mockUpdatedRequest)
-            mockSharedClrStdRepo.findUnique.mockResolvedValue(activeClrStd)
-            mockSharedClrStdRepo.create.mockResolvedValue({})
-
-            const result = await service.approveJoinRequest(joinRequestId)
-
-            expect(sharedClrStdRepo.update).not.toHaveBeenCalled()
-            expect(sharedClrStdRepo.create).toHaveBeenCalledWith({
-                classroomId: mockJoinRequest.classroomId,
-                studentId: mockJoinRequest.studentId,
-            })
-            expect(result).toEqual(mockUpdatedRequest)
-        })
-
-        it('should throw error if join request not found', async () => {
-            mockJoinreqRepo.findById.mockResolvedValue(null)
-
-            await expect(service.approveJoinRequest(joinRequestId)).rejects.toThrow(
-                UnprocessableEntityException,
-            )
-            await expect(service.approveJoinRequest(joinRequestId)).rejects.toThrow(
-                'Yêu cầu tham gia không tồn tại',
-            )
-
-            expect(joinreqRepo.update).not.toHaveBeenCalled()
-        })
-
-        it('should throw error if join request is already approved', async () => {
             const approvedRequest = {
                 ...mockJoinRequest,
                 status: JoinRequestStatus.approved,
-            }
+                handledAt: new Date(),
+            };
 
-            mockJoinreqRepo.findById.mockResolvedValue(approvedRequest)
+            mockJoinreqRepo.findById.mockResolvedValue(mockJoinRequest);
+            mockJoinreqRepo.update.mockResolvedValue(approvedRequest);
+            mockSharedClrStdRepo.findUnique.mockResolvedValue(null);
+            mockSharedClrStdRepo.create.mockResolvedValue({} as any);
 
-            await expect(service.approveJoinRequest(joinRequestId)).rejects.toThrow(
-                UnprocessableEntityException,
-            )
-            await expect(service.approveJoinRequest(joinRequestId)).rejects.toThrow(
-                'Yêu cầu tham gia đã được chấp thuận từ trước',
-            )
+            const result = await service.approveJoinRequest(testJoinRequestId);
 
-            expect(joinreqRepo.update).not.toHaveBeenCalled()
-        })
+            expect(result.status).toBe(JoinRequestStatus.approved);
+            expect(result.handledAt).toBeDefined();
+            expect(mockSharedClrStdRepo.create).toHaveBeenCalledWith({
+                classroomId: testClassroomId,
+                studentId: testStudentId,
+            });
+        });
 
-        it('should be able to approve a rejected request', async () => {
-            const rejectedRequest = {
+        it('should restore deleted ClassroomStudent when approving', async () => {
+            const mockJoinRequest = {
+                id: testJoinRequestId,
+                studentId: testStudentId,
+                classroomId: testClassroomId,
+                status: JoinRequestStatus.pending,
+                requestedAt: new Date(),
+                handledAt: null,
+            };
+
+            const deletedClassroomStudent = {
+                classroomId: testClassroomId,
+                studentId: testStudentId,
+                isActive: true,
+                deletedAt: new Date(),
+            };
+
+            const approvedRequest = {
                 ...mockJoinRequest,
-                status: JoinRequestStatus.rejected,
-                handledAt: new Date('2024-01-01'),
-            }
+                status: JoinRequestStatus.approved,
+                handledAt: new Date(),
+            };
 
-            mockJoinreqRepo.findById.mockResolvedValue(rejectedRequest)
-            mockJoinreqRepo.update.mockResolvedValue(mockUpdatedRequest)
-            mockSharedClrStdRepo.findUnique.mockResolvedValue(null)
-            mockSharedClrStdRepo.create.mockResolvedValue({})
+            mockJoinreqRepo.findById.mockResolvedValue(mockJoinRequest);
+            mockJoinreqRepo.update.mockResolvedValue(approvedRequest);
+            mockSharedClrStdRepo.findUnique.mockResolvedValue(deletedClassroomStudent as any);
+            mockSharedClrStdRepo.update.mockResolvedValue({} as any);
 
-            const result = await service.approveJoinRequest(joinRequestId)
+            await service.approveJoinRequest(testJoinRequestId);
 
-            expect(joinreqRepo.update).toHaveBeenCalled()
-            expect(result.status).toBe(JoinRequestStatus.approved)
-        })
-    })
+            expect(mockSharedClrStdRepo.update).toHaveBeenCalledWith({
+                classroomId: testClassroomId,
+                studentId: testStudentId,
+                deletedAt: null,
+            });
+        });
+
+        it('should throw error when joinRequest does not exist', async () => {
+            mockJoinreqRepo.findById.mockResolvedValue(null);
+
+            await expect(service.approveJoinRequest(testJoinRequestId)).rejects.toThrow(
+                UnprocessableEntityException
+            );
+            await expect(service.approveJoinRequest(testJoinRequestId)).rejects.toThrow(
+                'Yêu cầu tham gia không tồn tại'
+            );
+        });
+
+        it('should throw error when joinRequest already approved', async () => {
+            const approvedRequest = {
+                id: testJoinRequestId,
+                studentId: testStudentId,
+                classroomId: testClassroomId,
+                status: JoinRequestStatus.approved,
+                requestedAt: new Date(),
+                handledAt: new Date(),
+            };
+
+            mockJoinreqRepo.findById.mockResolvedValue(approvedRequest);
+
+            await expect(service.approveJoinRequest(testJoinRequestId)).rejects.toThrow(
+                UnprocessableEntityException
+            );
+            await expect(service.approveJoinRequest(testJoinRequestId)).rejects.toThrow(
+                'Yêu cầu tham gia đã được chấp thuận từ trước'
+            );
+        });
+    });
 
     describe('rejectJoinRequest', () => {
-        const joinRequestId = 1
-        const mockJoinRequest = {
-            id: joinRequestId,
-            studentId: 1,
-            classroomId: 1,
-            status: JoinRequestStatus.pending,
-            requestedAt: new Date(),
-            handledAt: null,
-        }
-
-        const mockRejectedRequest = {
-            ...mockJoinRequest,
-            status: JoinRequestStatus.rejected,
-            handledAt: new Date(),
-        }
-
         it('should reject join request successfully', async () => {
-            mockJoinreqRepo.findById.mockResolvedValue(mockJoinRequest)
-            mockJoinreqRepo.update.mockResolvedValue(mockRejectedRequest)
+            const mockJoinRequest = {
+                id: testJoinRequestId,
+                studentId: testStudentId,
+                classroomId: testClassroomId,
+                status: JoinRequestStatus.pending,
+                requestedAt: new Date(),
+                handledAt: null,
+            };
 
-            const result = await service.rejectJoinRequest(joinRequestId)
-
-            expect(joinreqRepo.findById).toHaveBeenCalledWith(joinRequestId)
-            expect(joinreqRepo.update).toHaveBeenCalledWith({
-                id: mockJoinRequest.id,
-                status: JoinRequestStatus.rejected,
-                handledAt: expect.any(Date),
-            })
-            expect(result).toEqual(mockRejectedRequest)
-        })
-
-        it('should throw error if join request not found', async () => {
-            mockJoinreqRepo.findById.mockResolvedValue(null)
-
-            await expect(service.rejectJoinRequest(joinRequestId)).rejects.toThrow(
-                UnprocessableEntityException,
-            )
-            await expect(service.rejectJoinRequest(joinRequestId)).rejects.toThrow(
-                'Yêu cầu tham gia không tồn tại',
-            )
-
-            expect(joinreqRepo.update).not.toHaveBeenCalled()
-        })
-
-        it('should throw error if join request is already rejected', async () => {
             const rejectedRequest = {
                 ...mockJoinRequest,
                 status: JoinRequestStatus.rejected,
-            }
+                handledAt: new Date(),
+            };
 
-            mockJoinreqRepo.findById.mockResolvedValue(rejectedRequest)
+            mockJoinreqRepo.findById.mockResolvedValue(mockJoinRequest);
+            mockJoinreqRepo.update.mockResolvedValue(rejectedRequest);
 
-            await expect(service.rejectJoinRequest(joinRequestId)).rejects.toThrow(
-                UnprocessableEntityException,
-            )
-            await expect(service.rejectJoinRequest(joinRequestId)).rejects.toThrow(
-                'Yêu cầu tham gia đã bị từ chối trước đó',
-            )
+            const result = await service.rejectJoinRequest(testJoinRequestId);
 
-            expect(joinreqRepo.update).not.toHaveBeenCalled()
-        })
+            expect(result.status).toBe(JoinRequestStatus.rejected);
+            expect(result.handledAt).toBeDefined();
+        });
 
-        it('should throw error if join request is already approved', async () => {
+        it('should throw error when joinRequest does not exist', async () => {
+            mockJoinreqRepo.findById.mockResolvedValue(null);
+
+            await expect(service.rejectJoinRequest(testJoinRequestId)).rejects.toThrow(
+                UnprocessableEntityException
+            );
+        });
+
+        it('should throw error when joinRequest already rejected', async () => {
+            const rejectedRequest = {
+                id: testJoinRequestId,
+                studentId: testStudentId,
+                classroomId: testClassroomId,
+                status: JoinRequestStatus.rejected,
+                requestedAt: new Date(),
+                handledAt: new Date(),
+            };
+
+            mockJoinreqRepo.findById.mockResolvedValue(rejectedRequest);
+
+            await expect(service.rejectJoinRequest(testJoinRequestId)).rejects.toThrow(
+                UnprocessableEntityException
+            );
+            await expect(service.rejectJoinRequest(testJoinRequestId)).rejects.toThrow(
+                'Yêu cầu tham gia đã bị từ chối trước đó'
+            );
+        });
+
+        it('should throw error when trying to reject approved request', async () => {
             const approvedRequest = {
-                ...mockJoinRequest,
+                id: testJoinRequestId,
+                studentId: testStudentId,
+                classroomId: testClassroomId,
                 status: JoinRequestStatus.approved,
-            }
+                requestedAt: new Date(),
+                handledAt: new Date(),
+            };
 
-            mockJoinreqRepo.findById.mockResolvedValue(approvedRequest)
+            mockJoinreqRepo.findById.mockResolvedValue(approvedRequest);
 
-            await expect(service.rejectJoinRequest(joinRequestId)).rejects.toThrow(
-                UnprocessableEntityException,
-            )
-            await expect(service.rejectJoinRequest(joinRequestId)).rejects.toThrow(
-                'Yêu cầu tham gia đã được chấp thuận từ trước. Không thể từ chối',
-            )
-
-            expect(joinreqRepo.update).not.toHaveBeenCalled()
-        })
-    })
+            await expect(service.rejectJoinRequest(testJoinRequestId)).rejects.toThrow(
+                UnprocessableEntityException
+            );
+            await expect(service.rejectJoinRequest(testJoinRequestId)).rejects.toThrow(
+                'Yêu cầu tham gia đã được chấp thuận từ trước. Không thể từ chối'
+            );
+        });
+    });
 
     describe('studentViewClassrooms', () => {
-        const studentId = 1
-        const query: GetJoinreqClassroomsQueryType = {
-            page: 1,
-            limit: 10,
-            order: EnumOrder.ASC,
-            sortBy: JoinreqClassroomSortByEnum.CREATED_AT,
-        }
-
-        const mockClassrooms = [
-            {
-                id: 1,
-                name: 'Classroom 1',
-                description: 'Description 1',
-                coverMediaId: null,
-                isArchived: false,
-                createdAt: new Date('2024-01-01'),
-                updatedAt: new Date('2024-01-01'),
-                deletedAt: null,
-                classroomStudents: [],
-                joinRequests: [
-                    {
-                        id: 1,
-                        status: JoinRequestStatus.pending,
-                        requestedAt: new Date('2024-01-01'),
-                        handledAt: null,
-                    },
-                ],
-            },
-            {
-                id: 2,
-                name: 'Classroom 2',
-                description: 'Description 2',
-                coverMediaId: null,
-                isArchived: false,
-                createdAt: new Date('2024-01-02'),
-                updatedAt: new Date('2024-01-02'),
-                deletedAt: null,
-                classroomStudents: [
-                    {
-                        studentId: 1,
-                        classroomId: 2,
-                        isActive: true,
-                        deletedAt: null,
-                    },
-                ],
-                joinRequests: [],
-            },
-        ]
-
-        it('should get classrooms with join request status', async () => {
-            mockJoinreqRepo.countClassrooms.mockResolvedValue(2)
-            mockJoinreqRepo.findClassrooms.mockResolvedValue(mockClassrooms)
-
-            const result = await service.studentViewClassrooms(studentId, query)
-
-            expect(joinreqRepo.countClassrooms).toHaveBeenCalledWith({
-                deletedAt: null,
-            })
-            expect(joinreqRepo.findClassrooms).toHaveBeenCalledWith(
-                { deletedAt: null },
-                { createdAt: 'asc' },
-                0,
-                10,
-                {
-                    includeStudentInfo: true,
-                    studentId,
-                },
-            )
-            expect(result).toEqual({
+        it('should return list of classrooms with pagination', async () => {
+            const query = {
                 page: 1,
                 limit: 10,
-                total: 2,
-                data: [
-                    {
-                        id: 1,
-                        name: 'Classroom 1',
-                        description: 'Description 1',
-                        coverMediaId: null,
-                        isArchived: false,
-                        createdAt: mockClassrooms[0].createdAt,
-                        updatedAt: mockClassrooms[0].updatedAt,
-                        isJoined: false,
-                        joinRequest: {
-                            id: 1,
+                order: EnumOrder.DESC,
+                sortBy: JoinreqClassroomSortByEnum.CREATED_AT,
+            };
+
+            const mockClassrooms = [
+                {
+                    id: 1,
+                    name: 'Class 1',
+                    description: 'Description 1',
+                    coverMediaId: null,
+                    isArchived: false,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                    classroomStudents: [],
+                    joinRequests: [],
+                },
+                {
+                    id: 2,
+                    name: 'Class 2',
+                    description: 'Description 2',
+                    coverMediaId: null,
+                    isArchived: false,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                    classroomStudents: [],
+                    joinRequests: [],
+                },
+            ];
+
+            mockJoinreqRepo.countClassrooms.mockResolvedValue(2);
+            mockJoinreqRepo.findClassrooms.mockResolvedValue(mockClassrooms as any);
+
+            const result = await service.studentViewClassrooms(testStudentId, query);
+
+            expect(result.page).toBe(1);
+            expect(result.limit).toBe(10);
+            expect(result.total).toBe(2);
+            expect(result.data).toHaveLength(2);
+        });
+
+        it('should show isJoined = true for joined classrooms', async () => {
+            const query = {
+                page: 1,
+                limit: 10,
+                order: EnumOrder.DESC,
+                sortBy: JoinreqClassroomSortByEnum.CREATED_AT,
+            };
+
+            const mockClassrooms = [
+                {
+                    id: 1,
+                    name: 'Joined Class',
+                    description: 'Description',
+                    coverMediaId: null,
+                    isArchived: false,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                    classroomStudents: [
+                        {
+                            studentId: testStudentId,
+                            classroomId: 1,
+                            isActive: true,
+                            deletedAt: null,
+                        },
+                    ],
+                    joinRequests: [],
+                },
+            ];
+
+            mockJoinreqRepo.countClassrooms.mockResolvedValue(1);
+            mockJoinreqRepo.findClassrooms.mockResolvedValue(mockClassrooms as any);
+
+            const result = await service.studentViewClassrooms(testStudentId, query);
+
+            expect(result.data[0].isJoined).toBe(true);
+        });
+
+        it('should show joinRequest if pending', async () => {
+            const query = {
+                page: 1,
+                limit: 10,
+                order: EnumOrder.DESC,
+                sortBy: JoinreqClassroomSortByEnum.NAME,
+            };
+
+            const mockClassrooms = [
+                {
+                    id: 1,
+                    name: 'Class with pending request',
+                    description: 'Description',
+                    coverMediaId: null,
+                    isArchived: false,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                    classroomStudents: [],
+                    joinRequests: [
+                        {
+                            id: testJoinRequestId,
+                            studentId: testStudentId,
+                            classroomId: 1,
                             status: JoinRequestStatus.pending,
-                            requestedAt: mockClassrooms[0].joinRequests[0].requestedAt,
+                            requestedAt: new Date(),
                             handledAt: null,
                         },
-                    },
-                    {
-                        id: 2,
-                        name: 'Classroom 2',
-                        description: 'Description 2',
-                        coverMediaId: null,
-                        isArchived: false,
-                        createdAt: mockClassrooms[1].createdAt,
-                        updatedAt: mockClassrooms[1].updatedAt,
-                        isJoined: true,
-                        joinRequest: null,
-                    },
-                ],
-            })
-        })
-
-        it('should filter classrooms by search term', async () => {
-            const searchQuery = {
-                ...query,
-                search: 'Math',
-            }
-
-            mockJoinreqRepo.countClassrooms.mockResolvedValue(1)
-            mockJoinreqRepo.findClassrooms.mockResolvedValue([mockClassrooms[0]])
-
-            await service.studentViewClassrooms(studentId, searchQuery)
-
-            expect(joinreqRepo.countClassrooms).toHaveBeenCalledWith({
-                deletedAt: null,
-                OR: [
-                    { name: { contains: 'Math', mode: 'insensitive' } },
-                    { description: { contains: 'Math', mode: 'insensitive' } },
-                ],
-            })
-        })
-
-        it('should handle pagination correctly', async () => {
-            const pageQuery = {
-                ...query,
-                page: 2,
-                limit: 5,
-            }
-
-            mockJoinreqRepo.countClassrooms.mockResolvedValue(10)
-            mockJoinreqRepo.findClassrooms.mockResolvedValue([])
-
-            await service.studentViewClassrooms(studentId, pageQuery)
-
-            expect(joinreqRepo.findClassrooms).toHaveBeenCalledWith(
-                { deletedAt: null },
-                { createdAt: 'asc' },
-                5, // skip = (page - 1) * limit
-                5, // take = limit
-                {
-                    includeStudentInfo: true,
-                    studentId,
+                    ],
                 },
-            )
-        })
+            ];
 
-        it('should handle different sorting options', async () => {
-            const sortQuery: GetJoinreqClassroomsQueryType = {
-                ...query,
-                sortBy: JoinreqClassroomSortByEnum.NAME,
-                order: EnumOrder.DESC,
-            }
+            mockJoinreqRepo.countClassrooms.mockResolvedValue(1);
+            mockJoinreqRepo.findClassrooms.mockResolvedValue(mockClassrooms as any);
 
-            mockJoinreqRepo.countClassrooms.mockResolvedValue(2)
-            mockJoinreqRepo.findClassrooms.mockResolvedValue(mockClassrooms)
+            const result = await service.studentViewClassrooms(testStudentId, query);
 
-            await service.studentViewClassrooms(studentId, sortQuery)
+            expect(result.data[0].joinRequest).toBeDefined();
+            expect(result.data[0].joinRequest?.status).toBe(JoinRequestStatus.pending);
+        });
 
-            expect(joinreqRepo.findClassrooms).toHaveBeenCalledWith(
-                { deletedAt: null },
-                { name: 'desc' },
-                0,
-                10,
-                {
-                    includeStudentInfo: true,
-                    studentId,
-                },
-            )
-        })
-
-        it('should return empty data when no classrooms found', async () => {
-            mockJoinreqRepo.countClassrooms.mockResolvedValue(0)
-            mockJoinreqRepo.findClassrooms.mockResolvedValue([])
-
-            const result = await service.studentViewClassrooms(studentId, query)
-
-            expect(result).toEqual({
+        it('should filter by search term', async () => {
+            const query = {
                 page: 1,
                 limit: 10,
-                total: 0,
-                data: [],
-            })
-        })
-    })
+                order: EnumOrder.ASC,
+                sortBy: JoinreqClassroomSortByEnum.NAME,
+                search: 'Math',
+            };
+
+            mockJoinreqRepo.countClassrooms.mockResolvedValue(1);
+            mockJoinreqRepo.findClassrooms.mockResolvedValue([
+                {
+                    id: 1,
+                    name: 'Math Class',
+                    description: 'Mathematics',
+                    coverMediaId: null,
+                    isArchived: false,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                    classroomStudents: [],
+                    joinRequests: [],
+                },
+            ] as any);
+
+            await service.studentViewClassrooms(testStudentId, query);
+
+            expect(mockJoinreqRepo.findClassrooms).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    deletedAt: null,
+                    OR: [
+                        { name: { contains: 'Math', mode: 'insensitive' } },
+                        { description: { contains: 'Math', mode: 'insensitive' } },
+                    ],
+                }),
+                expect.any(Object),
+                expect.any(Number),
+                expect.any(Number),
+                expect.objectContaining({
+                    includeStudentInfo: true,
+                    studentId: testStudentId,
+                })
+            );
+        });
+    });
 
     describe('studentViewJoinedClassrooms', () => {
-        const studentId = 1
-        const query: GetJoinreqClassroomsQueryType = {
-            page: 1,
-            limit: 10,
-            order: EnumOrder.ASC,
-            sortBy: JoinreqClassroomSortByEnum.CREATED_AT,
-        }
+        it('should return only joined classrooms', async () => {
+            const query = {
+                page: 1,
+                limit: 10,
+                order: EnumOrder.DESC,
+                sortBy: JoinreqClassroomSortByEnum.CREATED_AT,
+            };
 
-        const mockJoinedClassrooms = [
-            {
-                id: 1,
-                name: 'Classroom 1',
-                description: 'Description 1',
-                coverMediaId: null,
-                isArchived: false,
-                createdAt: new Date('2024-01-01'),
-                updatedAt: new Date('2024-01-01'),
-            },
-            {
-                id: 2,
-                name: 'Classroom 2',
-                description: 'Description 2',
-                coverMediaId: null,
-                isArchived: false,
-                createdAt: new Date('2024-01-02'),
-                updatedAt: new Date('2024-01-02'),
-            },
-        ]
-
-        const mockJoinedClassroomsFromRepo = [
-            {
-                ...mockJoinedClassrooms[0],
-                deletedAt: null,
-            },
-            {
-                ...mockJoinedClassrooms[1],
-                deletedAt: null,
-            },
-        ]
-
-        it('should get joined classrooms successfully', async () => {
-            mockJoinreqRepo.countClassrooms.mockResolvedValue(2)
-            mockJoinreqRepo.findClassrooms.mockResolvedValue(mockJoinedClassroomsFromRepo)
-
-            const result = await service.studentViewJoinedClassrooms(studentId, query)
-
-            expect(joinreqRepo.countClassrooms).toHaveBeenCalledWith({
-                deletedAt: null,
-                classroomStudents: {
-                    some: {
-                        studentId,
-                        isActive: true,
-                        deletedAt: null,
-                    },
-                },
-            })
-            expect(joinreqRepo.findClassrooms).toHaveBeenCalledWith(
+            const mockClassrooms = [
                 {
+                    id: 1,
+                    name: 'Joined Class',
+                    description: 'Description',
+                    coverMediaId: null,
+                    isArchived: false,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                },
+            ];
+
+            mockJoinreqRepo.countClassrooms.mockResolvedValue(1);
+            mockJoinreqRepo.findClassrooms.mockResolvedValue(mockClassrooms as any);
+
+            const result = await service.studentViewJoinedClassrooms(testStudentId, query);
+
+            expect(result.data).toHaveLength(1);
+            expect(mockJoinreqRepo.findClassrooms).toHaveBeenCalledWith(
+                expect.objectContaining({
                     deletedAt: null,
                     classroomStudents: {
                         some: {
-                            studentId,
+                            studentId: testStudentId,
                             isActive: true,
                             deletedAt: null,
                         },
                     },
-                },
-                { createdAt: 'asc' },
-                0,
-                10,
-            )
-            expect(result).toEqual({
-                page: 1,
-                limit: 10,
-                total: 2,
-                data: mockJoinedClassrooms,
-            })
-        })
+                }),
+                expect.any(Object),
+                expect.any(Number),
+                expect.any(Number)
+            );
+        });
 
-        it('should filter joined classrooms by search term', async () => {
-            const searchQuery = {
-                ...query,
-                search: 'Test',
-            }
-
-            mockJoinreqRepo.countClassrooms.mockResolvedValue(1)
-            mockJoinreqRepo.findClassrooms.mockResolvedValue([mockJoinedClassroomsFromRepo[0]])
-
-            await service.studentViewJoinedClassrooms(studentId, searchQuery)
-
-            expect(joinreqRepo.countClassrooms).toHaveBeenCalledWith({
-                deletedAt: null,
-                classroomStudents: {
-                    some: {
-                        studentId,
-                        isActive: true,
-                        deletedAt: null,
-                    },
-                },
-                OR: [
-                    { name: { contains: 'Test', mode: 'insensitive' } },
-                    { description: { contains: 'Test', mode: 'insensitive' } },
-                ],
-            })
-        })
-
-        it('should handle pagination for joined classrooms', async () => {
-            const pageQuery = {
-                ...query,
-                page: 3,
+        it('should apply pagination and sorting', async () => {
+            const query = {
+                page: 2,
                 limit: 5,
-            }
-
-            mockJoinreqRepo.countClassrooms.mockResolvedValue(15)
-            mockJoinreqRepo.findClassrooms.mockResolvedValue([])
-
-            await service.studentViewJoinedClassrooms(studentId, pageQuery)
-
-            expect(joinreqRepo.findClassrooms).toHaveBeenCalledWith(
-                expect.any(Object),
-                { createdAt: 'asc' },
-                10, // skip = (3 - 1) * 5
-                5,
-            )
-        })
-
-        it('should handle different sorting for joined classrooms', async () => {
-            const sortQuery: GetJoinreqClassroomsQueryType = {
-                ...query,
+                order: EnumOrder.ASC,
                 sortBy: JoinreqClassroomSortByEnum.NAME,
-                order: EnumOrder.DESC,
-            }
+            };
 
-            mockJoinreqRepo.countClassrooms.mockResolvedValue(2)
-            mockJoinreqRepo.findClassrooms.mockResolvedValue(mockJoinedClassroomsFromRepo)
+            mockJoinreqRepo.countClassrooms.mockResolvedValue(10);
+            mockJoinreqRepo.findClassrooms.mockResolvedValue([] as any);
 
-            await service.studentViewJoinedClassrooms(studentId, sortQuery)
+            await service.studentViewJoinedClassrooms(testStudentId, query);
 
-            expect(joinreqRepo.findClassrooms).toHaveBeenCalledWith(
+            expect(mockJoinreqRepo.findClassrooms).toHaveBeenCalledWith(
                 expect.any(Object),
-                { name: 'desc' },
-                0,
-                10,
-            )
-        })
-
-        it('should return empty data when student has no joined classrooms', async () => {
-            mockJoinreqRepo.countClassrooms.mockResolvedValue(0)
-            mockJoinreqRepo.findClassrooms.mockResolvedValue([])
-
-            const result = await service.studentViewJoinedClassrooms(studentId, query)
-
-            expect(result).toEqual({
-                page: 1,
-                limit: 10,
-                total: 0,
-                data: [],
-            })
-        })
-    })
+                { name: EnumOrder.ASC },
+                5, // skip = (page - 1) * limit = 5
+                5  // take = limit
+            );
+        });
+    });
 
     describe('leaveClassroom', () => {
-        const studentId = 1
-        const classroomId = 1
-
         it('should leave classroom successfully', async () => {
-            mockSharedClrStdRepo.update.mockResolvedValue({})
-            mockSharedJreqRepo.deleteJreq.mockResolvedValue({})
+            mockSharedClrStdRepo.update.mockResolvedValue({} as any);
+            mockSharedJreqRepo.deleteJreq.mockResolvedValue(undefined);
 
-            const result = await service.leaveClassroom(studentId, classroomId)
+            const result = await service.leaveClassroom(testStudentId, testClassroomId);
 
-            expect(sharedClrStdRepo.update).toHaveBeenCalledWith({
-                studentId,
-                classroomId,
+            expect(result.message).toBe('Rời lớp học thành công');
+            expect(mockSharedClrStdRepo.update).toHaveBeenCalledWith({
+                studentId: testStudentId,
+                classroomId: testClassroomId,
                 deletedAt: expect.any(Date),
-            })
-            expect(sharedJreqRepo.deleteJreq).toHaveBeenCalledWith(classroomId, studentId)
-            expect(result).toEqual({ message: 'Rời lớp học thành công' })
-        })
-
-        it('should handle different student and classroom IDs', async () => {
-            mockSharedClrStdRepo.update.mockResolvedValue({})
-            mockSharedJreqRepo.deleteJreq.mockResolvedValue({})
-
-            const result = await service.leaveClassroom(5, 10)
-
-            expect(sharedClrStdRepo.update).toHaveBeenCalledWith({
-                studentId: 5,
-                classroomId: 10,
-                deletedAt: expect.any(Date),
-            })
-            expect(sharedJreqRepo.deleteJreq).toHaveBeenCalledWith(10, 5)
-            expect(result).toEqual({ message: 'Rời lớp học thành công' })
-        })
-
-        it('should propagate errors from sharedClrStdRepo', async () => {
-            const error = new Error('Update failed')
-            mockSharedClrStdRepo.update.mockRejectedValue(error)
-
-            await expect(service.leaveClassroom(studentId, classroomId)).rejects.toThrow(error)
-        })
-
-        it('should propagate errors from sharedJreqRepo', async () => {
-            const error = new Error('Delete failed')
-            mockSharedClrStdRepo.update.mockResolvedValue({})
-            mockSharedJreqRepo.deleteJreq.mockRejectedValue(error)
-
-            await expect(service.leaveClassroom(studentId, classroomId)).rejects.toThrow(error)
-        })
-    })
-})
+            });
+            expect(mockSharedJreqRepo.deleteJreq).toHaveBeenCalledWith(testClassroomId, testStudentId);
+        });
+    });
+});

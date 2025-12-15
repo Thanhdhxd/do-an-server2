@@ -41,6 +41,8 @@ export default tseslint.config(
       '@typescript-eslint/await-thenable': 'off',
       'prefer-const': 'off',
       '@typescript-eslint/unbound-method': 'off',
+      '@typescript-eslint/prefer-as-const': 'off',
+      '@typescript-eslint/no-unnecessary-type-assertions': 'off',
     },
   },
 );

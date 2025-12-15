@@ -1,0 +1,436 @@
+// This is your Prisma schema file for TESTING with SQLite
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/@prisma/test-client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("TEST_DATABASE_URL")
+}
+
+enum OtpCodeType {
+  email_verification
+  password_reset
+}
+
+model OtpRecord {
+  id        Int      @id @default(autoincrement())
+  email     String      
+  otpCode   String      
+  codeType  OtpCodeType
+  createdAt DateTime    @default(now()) 
+  expiresAt DateTime    
+
+  @@index([email, otpCode, codeType, expiresAt(sort: Desc)], map: "IX_OtpRecords_Email_Code")
+}
+
+// =========================================
+// REFRESH TOKENS
+// =========================================
+
+model RefreshToken {
+  token     String   @unique 
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  expiresAt DateTime
+  createdAt DateTime @default(now()) 
+
+  @@index([expiresAt])
+}
+
+model Media {
+  id         Int       @id @default(autoincrement())
+  disk       String    
+  bucket     String?   
+  objectKey  String    
+  mimeType   String?   
+  sizeBytes  Int?
+  visibility String    @default("private") 
+  uploadedBy Int?
+  createdAt  DateTime  @default(now()) 
+  deletedAt  DateTime? 
+
+  uploader                User?                    @relation("MediaUploadedBy", fields: [uploadedBy], references: [id])
+  userAvatars             User[]                   @relation("UserAvatar")
+  classroomCovers         Classroom[]
+  exerciseAttachments     Exercise[]
+  exerciseSubmissions     ExerciseSubmission[]
+  quizQuestionGroupMedias QuizQuestionGroupMedia[]
+  quizQuestionMedias      QuizQuestionMedia[]
+  quizOptionMedias        QuizOptionMedia[]
+  lectures                Lecture[]
+
+  @@unique([bucket, objectKey], map: "UQ_Media_Bucket_Key")
+}
+
+enum Role {
+  student
+  admin
+}
+
+model User {
+  id            Int      @id @default(autoincrement())
+  fullName      String   
+  email         String   @unique 
+  passwordHash  String   
+  phoneNumber   String   @unique 
+  role          Role     @default(student)
+  avatarMediaId Int?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now()) 
+  updatedAt     DateTime @default(now()) @updatedAt 
+
+  avatarMedia         Media?               @relation("UserAvatar", fields: [avatarMediaId], references: [id])
+  uploadedMedia       Media[]              @relation("MediaUploadedBy")
+  classroomStudents   ClassroomStudent[]
+  joinRequests        JoinRequest[]        @relation("JoinRequestStudent")
+  exerciseSubmissions ExerciseSubmission[]
+  quizAttempts        QuizAttempt[]
+  refreshTokens       RefreshToken[]
+  activityLogs        ActivityLog[]
+}
+
+// =========================================
+// CLASSROOMS & MEMBERSHIP
+// =========================================
+
+model Classroom {
+  id           Int       @id @default(autoincrement())
+  name         String    @unique 
+  description  String?   
+  coverMediaId Int?
+  isArchived   Boolean   @default(false)
+  createdAt    DateTime  @default(now()) 
+  updatedAt    DateTime  @default(now()) @updatedAt 
+  deletedAt    DateTime? 
+
+  coverMedia        Media?             @relation(fields: [coverMediaId], references: [id])
+  classroomStudents ClassroomStudent[]
+  joinRequests      JoinRequest[]
+  lessons           Lesson[]
+}
+
+model ClassroomStudent {
+  classroomId Int
+  studentId   Int
+  joinedAt    DateTime  @default(now()) 
+  isActive    Boolean   @default(true)
+  deletedAt   DateTime? 
+
+  classroom Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  student   User      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@id([classroomId, studentId])
+}
+
+enum JoinRequestStatus {
+  pending
+  approved
+  rejected
+}
+
+model JoinRequest {
+  id          Int               @id @default(autoincrement())
+  classroomId Int
+  studentId   Int
+  status      JoinRequestStatus @default(pending)
+  requestedAt DateTime          @default(now()) 
+  handledAt   DateTime?         
+
+  classroom Classroom @relation(fields: [classroomId], references: [id])
+  student   User      @relation("JoinRequestStudent", fields: [studentId], references: [id])
+
+  @@unique([classroomId, studentId], map: "UQ_JoinRequests_Classroom_Student")
+  @@index([classroomId, status], map: "IX_JoinRequests_Status")
+}
+
+// =========================================
+// LESSONS & MATERIALS
+// =========================================
+
+enum LessonType {
+  lecture
+  exercise
+  quiz
+}
+
+model Lesson {
+  id              Int        @id @default(autoincrement())
+  classroomId     Int
+  lessonType      LessonType
+  lectureId       Int?
+  exerciseId      Int?
+  quizId          Int?
+  exerciseDueAt   DateTime?  
+  quizStartAt     DateTime?  
+  quizEndAt       DateTime?  
+  showQuizAnswers Boolean    @default(false)
+  showQuizScore   Boolean    @default(false)
+  orderIndex      Int        @default(0)
+  createdAt       DateTime   @default(now()) 
+  updatedAt       DateTime   @default(now()) @updatedAt 
+  deletedAt       DateTime?  
+
+  classroom           Classroom            @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  lecture             Lecture?             @relation(fields: [lectureId], references: [id])
+  exercise            Exercise?            @relation(fields: [exerciseId], references: [id])
+  quiz                Quiz?                @relation(fields: [quizId], references: [id])
+  exerciseSubmissions ExerciseSubmission[]
+  quizAttempts        QuizAttempt[]
+
+  @@index([classroomId])
+  @@index([lectureId])
+  @@index([exerciseId])
+  @@index([quizId])
+}
+
+model Lecture {
+  id         Int       @id @default(autoincrement())
+  parentId   Int?
+  title      String    
+  content    String?   
+  mediaId    Int?
+  uploadedAt DateTime  @default(now()) 
+  updatedAt  DateTime  @default(now()) @updatedAt 
+  deletedAt  DateTime? 
+
+  parent   Lecture?  @relation("LectureParent", fields: [parentId], references: [id])
+  children Lecture[] @relation("LectureParent")
+  media    Media?    @relation(fields: [mediaId], references: [id])
+  lessons  Lesson[]
+}
+
+// =========================================
+// EXERCISES & SUBMISSIONS
+// =========================================
+
+model Exercise {
+  id            Int       @id @default(autoincrement())
+  title         String    
+  description   String?
+  attachMediaId Int?
+  createdAt     DateTime  @default(now()) 
+  updatedAt     DateTime  @default(now()) @updatedAt 
+  deletedAt     DateTime? 
+
+  attachMedia Media?               @relation(fields: [attachMediaId], references: [id])
+  submissions ExerciseSubmission[]
+  lessons     Lesson[]
+}
+
+model ExerciseSubmission {
+  id          Int       @id @default(autoincrement())
+  lessonId    Int
+  exerciseId  Int
+  studentId   Int
+  mediaId     Int
+  submittedAt DateTime  @default(now())
+  score       Float?
+  comment     String?   
+  gradedAt    DateTime? 
+
+  exercise Exercise @relation(fields: [exerciseId], references: [id])
+  student  User     @relation(fields: [studentId], references: [id])
+  media    Media    @relation(fields: [mediaId], references: [id])
+  lesson   Lesson   @relation(fields: [lessonId], references: [id])
+
+  @@unique([lessonId, studentId], map: "UQ_Submission_OnePerStudentPerLesson")
+  @@index([exerciseId], map: "IX_Submissions_Exercise")
+  @@index([lessonId], map: "IX_Submissions_Lesson")
+}
+
+// =========================================
+// QUIZZES
+// =========================================
+
+enum GradingMethod {
+  first
+  highest
+  average
+  latest
+}
+
+model Quiz {
+  id               Int           @id @default(autoincrement())
+  title            String        
+  description      String?
+  timeLimitSec     Int
+  maxAttempts      Int           @default(1)
+  shuffleQuestions Boolean       @default(true)
+  shuffleOptions   Boolean       @default(true)
+  gradingMethod    GradingMethod @default(first)
+  createdAt        DateTime      @default(now()) 
+  updatedAt        DateTime      @default(now()) @updatedAt 
+  deletedAt        DateTime?     
+
+  sections       QuizSection[]
+  questionGroups QuizQuestionGroup[]
+  questions      QuizQuestion[]
+  attempts       QuizAttempt[]
+  lessons        Lesson[]
+}
+
+model QuizSection {
+  id          Int     @id @default(autoincrement())
+  quizId      Int
+  title       String  
+  description String?
+  orderIndex  Int     @default(0)
+
+  quiz           Quiz                @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  questionGroups QuizQuestionGroup[]
+  questions      QuizQuestion[]
+}
+
+model QuizQuestionGroup {
+  id            Int      @id @default(autoincrement())
+  quizId        Int
+  sectionId     Int?
+  title         String?  
+  introText     String?  
+  orderIndex    Int      @default(0)
+  shuffleInside Boolean  @default(false)
+  createdAt     DateTime @default(now()) 
+
+  quiz      Quiz                     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  section   QuizSection?             @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  questions QuizQuestion[]
+  medias    QuizQuestionGroupMedia[]
+}
+
+enum QuestionType {
+  single_choice
+  multiple_choice
+}
+
+model QuizQuestion {
+  id           Int          @id @default(autoincrement())
+  quizId       Int
+  sectionId    Int?
+  groupId      Int?
+  content      String       
+  explanation  String?      
+  questionType QuestionType @default(single_choice)
+  points       Float        @default(1.0)
+  orderIndex   Int          @default(0)
+
+  quiz    Quiz                @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  section QuizSection?        @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  group   QuizQuestionGroup?  @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  options QuizOption[]
+  answers QuizAnswer[]
+  medias  QuizQuestionMedia[]
+}
+
+model QuizOption {
+  id         Int     @id @default(autoincrement())
+  questionId Int
+  content    String  
+  isCorrect  Boolean @default(false)
+  orderIndex Int     @default(0)
+
+  question QuizQuestion      @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answers  QuizAnswer[]
+  medias   QuizOptionMedia[]
+}
+
+enum QuizAttemptStatus {
+  in_progress
+  submitted
+  graded
+}
+
+model QuizAttempt {
+  id            Int               @id @default(autoincrement())
+  lessonId      Int
+  quizId        Int
+  studentId     Int
+  startedAt     DateTime          @default(now()) 
+  submittedAt   DateTime?         
+  status        QuizAttemptStatus @default(in_progress)
+  scoreRaw      Float?
+  scoreScaled10 Float?
+
+  lesson  Lesson       @relation(fields: [lessonId], references: [id])
+  quiz    Quiz         @relation(fields: [quizId], references: [id])
+  student User         @relation(fields: [studentId], references: [id])
+  answers QuizAnswer[]
+
+  @@index([quizId], map: "IX_QuizAttempts_Quiz")
+  @@index([studentId], map: "IX_QuizAttempts_Student")
+  @@index([lessonId], map: "IX_QuizAttempts_Lesson")
+  @@index([status])
+  @@index([lessonId, studentId, submittedAt(sort: Desc)]) // THÊM - để lấy lần làm bài gần nhất
+}
+
+model QuizAnswer {
+  attemptId  Int
+  questionId Int
+  optionId   Int
+
+  attempt  QuizAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  option   QuizOption   @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  @@id([attemptId, questionId, optionId])
+}
+
+// =========================================
+// MEDIA RELATIONS
+// =========================================
+
+model QuizQuestionGroupMedia {
+  id        Int      @id @default(autoincrement())
+  groupId   Int
+  mediaId   Int
+  createdAt DateTime @default(now()) 
+
+  group QuizQuestionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  media Media             @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, mediaId], map: "UQ_QQGroupMed")
+}
+
+model QuizQuestionMedia {
+  id         Int      @id @default(autoincrement())
+  questionId Int
+  mediaId    Int
+  createdAt  DateTime @default(now()) 
+
+  question QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  media    Media        @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, mediaId], map: "UQ_QQMed")
+}
+
+model QuizOptionMedia {
+  id        Int      @id @default(autoincrement())
+  optionId  Int
+  mediaId   Int
+  createdAt DateTime @default(now()) 
+
+  option QuizOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  media  Media      @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@unique([optionId, mediaId], map: "UQ_QOMed")
+}
+
+model ActivityLog {
+  id         Int   @id @default(autoincrement())
+  userId     Int
+  action     String   
+  entityType String   
+  entityId   Int?
+  metadata   String?  
+  createdAt  DateTime @default(now()) 
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([entityType, entityId])
+}
+
+
