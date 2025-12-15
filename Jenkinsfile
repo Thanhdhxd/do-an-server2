@@ -65,18 +65,27 @@ pipeline {
                 script {
                     if (isUnix()) {
                         sh '''
+                            # Generate SQL and filter out dotenv messages
                             npx prisma migrate diff \\
                                 --from-empty \\
                                 --to-schema-datamodel prisma/schema.test.prisma \\
-                                --script > prisma/test-schema.sql
+                                --script 2>&1 | grep -v "\\[dotenv" | grep -v "^Loaded Prisma" | grep -v "^Prisma config" | grep -v "^$" > prisma/test-schema.sql
                             
-                            # Verify file was created
+                            # Verify file was created and contains SQL
                             if [ ! -s prisma/test-schema.sql ]; then
                                 echo "Error: test-schema.sql is empty or not created"
                                 exit 1
                             fi
                             
+                            # Check if file starts with SQL commands
+                            if ! grep -q "CREATE TABLE" prisma/test-schema.sql; then
+                                echo "Error: test-schema.sql does not contain CREATE TABLE statements"
+                                cat prisma/test-schema.sql
+                                exit 1
+                            fi
+                            
                             echo "test-schema.sql generated successfully"
+                            echo "First 20 lines:"
                             head -20 prisma/test-schema.sql
                         '''
                     } else {
