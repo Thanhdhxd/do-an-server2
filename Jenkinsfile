@@ -64,9 +64,26 @@ pipeline {
                 echo 'Generating test-schema.sql for SQLite...'
                 script {
                     if (isUnix()) {
-                        sh 'npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.test.prisma --script > prisma/test-schema.sql'
+                        sh '''
+                            npx prisma migrate diff \\
+                                --from-empty \\
+                                --to-schema-datamodel prisma/schema.test.prisma \\
+                                --script > prisma/test-schema.sql
+                            
+                            # Verify file was created
+                            if [ ! -s prisma/test-schema.sql ]; then
+                                echo "Error: test-schema.sql is empty or not created"
+                                exit 1
+                            fi
+                            
+                            echo "test-schema.sql generated successfully"
+                            head -20 prisma/test-schema.sql
+                        '''
                     } else {
-                        bat 'npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.test.prisma --script > prisma/test-schema.sql'
+                        bat '''
+                            npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.test.prisma --script > prisma/test-schema.sql
+                            if not exist prisma\\test-schema.sql exit /b 1
+                        '''
                     }
                 }
             }
