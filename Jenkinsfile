@@ -3,7 +3,7 @@ pipeline {
     
     environment {
         // Private Docker Registry Configuration
-        DOCKER_REGISTRY = 'localhost:5000'  // Địa chỉ registry riêng
+        DOCKER_REGISTRY = '192.168.123.3:5000'  // Địa chỉ registry riêng
         DOCKER_IMAGE = "${DOCKER_REGISTRY}/do-an-server"
         DOCKER_TAG = "${BUILD_NUMBER}"
         DOCKER_REGISTRY_CREDENTIALS = 'docker-registry-credentials'
@@ -13,9 +13,12 @@ pipeline {
         
         // SSH Deployment Configuration
         SSH_CREDENTIALS = 'ssh-deployment-key'
-        DEPLOYMENT_HOST = '192.168.0.102'  // Thay bằng IP máy deployment của bạn
+        DEPLOYMENT_HOST = '192.168.123.3'  // Thay bằng IP máy deployment của bạn
         DEPLOYMENT_USER = 'deployment-user'  // Thay bằng username deployment
         DEPLOY_PATH = 'C:\\deployment\\do-an-server2'
+        
+        // Production Environment Credentials
+        PROD_ENV_CREDENTIALS = 'production-environment-variables'
     }
     
     stages {
@@ -215,54 +218,114 @@ pipeline {
                 echo "Target: ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST}:${DEPLOY_PATH}"
                 
                 script {
-                    // Sử dụng sshagent để authenticate với SSH key
-                    sshagent(credentials: [SSH_CREDENTIALS]) {
-                        if (isUnix()) {
-                            // Linux/Mac deployment
-                            sh """
-                                # Tạo thư mục deployment nếu chưa có
-                                ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} 'mkdir -p ${DEPLOY_PATH}'
-                                
-                                # Copy docker-compose file và .env
-                                scp -o StrictHostKeyChecking=no docker-compose.prod.yml ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST}:${DEPLOY_PATH}/
-                                scp -o StrictHostKeyChecking=no .env.production ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST}:${DEPLOY_PATH}/.env
-                                
-                                # Deploy trên server
-                                ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} '
-                                    cd ${DEPLOY_PATH}
-                                    echo "Pulling latest images from registry..."
-                                    docker-compose -f docker-compose.prod.yml pull
-                                    echo "Stopping old containers..."
-                                    docker-compose -f docker-compose.prod.yml down
-                                    echo "Starting new containers..."
-                                    docker-compose -f docker-compose.prod.yml up -d
-                                    echo "Checking container status..."
-                                    docker-compose -f docker-compose.prod.yml ps
-                                    echo "Deployment completed!"
-                                '
-                            """
-                        } else {
-                            // Windows deployment
-                            bat """
-                                @echo off
-                                echo Creating deployment directory...
-                                ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "if not exist ${DEPLOY_PATH} mkdir ${DEPLOY_PATH}"
-                                
-                                echo Copying docker-compose file...
-                                scp -o StrictHostKeyChecking=no docker-compose.prod.yml ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST}:${DEPLOY_PATH}/
-                                
-                                echo Copying environment file...
-                                if exist .env.production (
-                                    scp -o StrictHostKeyChecking=no .env.production ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST}:${DEPLOY_PATH}/.env
-                                ) else (
-                                    echo Warning: .env.production not found, skipping...
-                                )
-                                
-                                echo Deploying on remote server...
-                                ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "cd ${DEPLOY_PATH} && docker-compose -f docker-compose.prod.yml pull && docker-compose -f docker-compose.prod.yml down && docker-compose -f docker-compose.prod.yml up -d && docker-compose -f docker-compose.prod.yml ps"
-                                
-                                echo Deployment completed!
-                            """
+                    // Lấy credentials từ Jenkins và tạo file .env động
+                    withCredentials([
+                        // Database
+                        string(credentialsId: 'prod-postgres-host', variable: 'POSTGRES_HOST'),
+                        string(credentialsId: 'prod-postgres-port', variable: 'POSTGRES_PORT'),
+                        string(credentialsId: 'prod-postgres-user', variable: 'POSTGRES_USER'),
+                        string(credentialsId: 'prod-postgres-password', variable: 'POSTGRES_PASSWORD'),
+                        string(credentialsId: 'prod-postgres-db', variable: 'POSTGRES_DB'),
+                        // JWT/Auth Tokens
+                        string(credentialsId: 'prod-access-token-secret', variable: 'ACCESS_TOKEN_SECRET'),
+                        string(credentialsId: 'prod-access-token-expires', variable: 'ACCESS_TOKEN_EXPIRES_IN'),
+                        string(credentialsId: 'prod-refresh-token-secret', variable: 'REFRESH_TOKEN_SECRET'),
+                        string(credentialsId: 'prod-refresh-token-expires', variable: 'REFRESH_TOKEN_EXPIRES_IN'),
+                        // Admin Account
+                        string(credentialsId: 'prod-admin-fullname', variable: 'ADMIN_FULL_NAME'),
+                        string(credentialsId: 'prod-admin-password', variable: 'ADMIN_PASSWORD'),
+                        string(credentialsId: 'prod-admin-email', variable: 'ADMIN_EMAIL'),
+                        string(credentialsId: 'prod-admin-phone', variable: 'ADMIN_PHONE_NUMBER'),
+                        // Email Service
+                        string(credentialsId: 'prod-resend-api-key', variable: 'RESEND_API_KEY'),
+                        // MinIO Storage
+                        string(credentialsId: 'prod-minio-endpoint', variable: 'MINIO_ENDPOINT'),
+                        string(credentialsId: 'prod-minio-access-key', variable: 'MINIO_ACCESS_KEY'),
+                        string(credentialsId: 'prod-minio-secret-key', variable: 'MINIO_SECRET_KEY'),
+                        string(credentialsId: 'prod-minio-bucket', variable: 'MINIO_BUCKET_NAME')
+                    ]) {
+                        
+                        // Sử dụng sshagent để authenticate với SSH key
+                        sshagent(credentials: [SSH_CREDENTIALS]) {
+                            if (isUnix()) {
+                                // Linux/Mac deployment
+                                sh """
+                                    # Tạo thư mục deployment nếu chưa có
+                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} 'mkdir -p ${DEPLOY_PATH}'
+                                    
+                                    # Copy docker-compose file
+                                    scp -o StrictHostKeyChecking=no docker-compose.prod.yml ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST}:${DEPLOY_PATH}/
+                                    
+                                    # Tạo file .env trên server với credentials từ Jenkins
+                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} '
+                                        cd ${DEPLOY_PATH}
+                                        echo "Creating .env file with production credentials..."
+                                        cat > .env << EOL
+# Database Configuration
+POSTGRES_HOST=${POSTGRES_HOST}
+POSTGRES_PORT=${POSTGRES_PORT}
+POSTGRES_USER=${POSTGRES_USER}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+POSTGRES_DB=${POSTGRES_DB}
+DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?schema=public
+
+# JWT/Auth Tokens
+ACCESS_TOKEN_SECRET=${ACCESS_TOKEN_SECRET}
+ACCESS_TOKEN_EXPIRES_IN=${ACCESS_TOKEN_EXPIRES_IN}
+REFRESH_TOKEN_SECRET=${REFRESH_TOKEN_SECRET}
+REFRESH_TOKEN_EXPIRES_IN=${REFRESH_TOKEN_EXPIRES_IN}
+
+# Admin Account
+ADMIN_FULL_NAME=${ADMIN_FULL_NAME}
+ADMIN_PASSWORD=${ADMIN_PASSWORD}
+ADMIN_EMAIL=${ADMIN_EMAIL}
+ADMIN_PHONE_NUMBER=${ADMIN_PHONE_NUMBER}
+
+# Email Service
+RESEND_API_KEY=${RESEND_API_KEY}
+
+# MinIO Storage
+MINIO_ENDPOINT=${MINIO_ENDPOINT}
+MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
+EOL
+                                        echo ".env file created successfully"
+                                    '
+                                    
+                                    # Deploy trên server
+                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} '
+                                        cd ${DEPLOY_PATH}
+                                        echo "Pulling latest images from registry..."
+                                        docker compose -f docker-compose.prod.yml pull
+                                        echo "Stopping old containers..."
+                                        docker compose -f docker-compose.prod.yml down
+                                        echo "Starting new containers..."
+                                        docker compose -f docker-compose.prod.yml up -d
+                                        echo "Checking container status..."
+                                        docker compose -f docker-compose.prod.yml ps
+                                        echo "Deployment completed!"
+                                    '
+                                """
+                            } else {
+                                // Windows deployment
+                                bat """
+                                    @echo off
+                                    echo Creating deployment directory...
+                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "if not exist ${DEPLOY_PATH} mkdir ${DEPLOY_PATH}"
+                                    
+                                    echo Copying docker-compose file...
+                                    scp -o StrictHostKeyChecking=no docker-compose.prod.yml ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST}:${DEPLOY_PATH}/
+                                    
+                                    echo Creating .env file on server with production credentials...
+                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "cd ${DEPLOY_PATH} && (echo # Database Configuration && echo POSTGRES_HOST=${POSTGRES_HOST} && echo POSTGRES_PORT=${POSTGRES_PORT} && echo POSTGRES_USER=${POSTGRES_USER} && echo POSTGRES_PASSWORD=${POSTGRES_PASSWORD} && echo POSTGRES_DB=${POSTGRES_DB} && echo DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?schema=public && echo. && echo # JWT/Auth Tokens && echo ACCESS_TOKEN_SECRET=${ACCESS_TOKEN_SECRET} && echo ACCESS_TOKEN_EXPIRES_IN=${ACCESS_TOKEN_EXPIRES_IN} && echo REFRESH_TOKEN_SECRET=${REFRESH_TOKEN_SECRET} && echo REFRESH_TOKEN_EXPIRES_IN=${REFRESH_TOKEN_EXPIRES_IN} && echo. && echo # Admin Account && echo ADMIN_FULL_NAME=${ADMIN_FULL_NAME} && echo ADMIN_PASSWORD=${ADMIN_PASSWORD} && echo ADMIN_EMAIL=${ADMIN_EMAIL} && echo ADMIN_PHONE_NUMBER=${ADMIN_PHONE_NUMBER} && echo. && echo # Email Service && echo RESEND_API_KEY=${RESEND_API_KEY} && echo. && echo # MinIO Storage && echo MINIO_ENDPOINT=${MINIO_ENDPOINT} && echo MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY} && echo MINIO_SECRET_KEY=${MINIO_SECRET_KEY} && echo MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}) > .env"
+                                    
+                                    echo Deploying on remote server...
+                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "cd ${DEPLOY_PATH} && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml down && docker compose -f docker-compose.prod.yml up -d && docker compose -f docker-compose.prod.yml ps"
+                                    
+                                    echo Deployment completed!
+                                """
+                            }
                         }
                     }
                 }

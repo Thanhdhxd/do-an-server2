@@ -18,6 +18,26 @@ services:
       timeout: 5s
       retries: 5
 
+  minio-prod:
+    image: minio/minio:latest
+    restart: always
+    env_file:
+      - .env
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"  # MinIO API
+      - "9001:9001"  # MinIO Console UI
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   app-prod:
     image: localhost:5000/do-an-server:latest  # Pull từ Docker Registry
     env_file:
@@ -31,6 +51,8 @@ services:
     depends_on:
       db-prod:
         condition: service_healthy
+      minio-prod:
+        condition: service_healthy
     restart: always
     # healthcheck:
     #   test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
@@ -40,3 +62,4 @@ services:
 
 volumes:
   db_data:
+  minio_data:
