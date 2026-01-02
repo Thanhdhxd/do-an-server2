@@ -269,11 +269,11 @@ pipeline {
                                     # Tạo thư mục deployment nếu chưa có (dùng PowerShell qua SSH)
                                     ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} 'powershell -Command "New-Item -ItemType Directory -Force -Path ${DEPLOY_PATH_WINDOWS}"'
                                     
-                                    # Copy docker-compose file qua PowerShell (đọc local, ghi remote)
-                                    cat docker-compose.prod.yml | ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "powershell -Command \\\"\\\$content = \\\$input | Out-String; Set-Content -Path '${DEPLOY_PATH_WINDOWS}\\\\docker-compose.prod.yml' -Value \\\$content\\\"\""
+                                    # Copy docker-compose file using scp
+                                    scp -o StrictHostKeyChecking=no docker-compose.prod.yml ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST}:${DEPLOY_PATH}/docker-compose.prod.yml
                                     
-                                    # Tạo file .env trên server với credentials từ Jenkins
-                                    cat <<'EOF_ENV' | ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "powershell -Command \"\\\$content = \\\$input | Out-String; Set-Content -Path '${DEPLOY_PATH_WINDOWS}\\.env' -Value \\\$content; Write-Host '.env file created successfully'\""
+                                    # Tạo file .env local trước, sau đó copy qua
+                                    cat > .env.prod.tmp << EOF
 # Database Configuration
 POSTGRES_HOST=${POSTGRES_HOST}
 POSTGRES_PORT=${POSTGRES_PORT}
@@ -302,20 +302,26 @@ MINIO_ENDPOINT=${MINIO_ENDPOINT}
 MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
 MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
 MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
-EOF_ENV
+EOF
                                     
-                                    # Deploy trên server - chạy commands riêng biệt
+                                    # Copy .env file to server
+                                    scp -o StrictHostKeyChecking=no .env.prod.tmp ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST}:${DEPLOY_PATH}/.env
+                                    
+                                    # Clean up temp file
+                                    rm -f .env.prod.tmp
+                                    
+                                    # Deploy trên server - sử dụng DEPLOY_PATH (Unix-style) cho SSH
                                     echo "Pulling latest images from registry..."
-                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "cd ${DEPLOY_PATH_WINDOWS} && docker compose -f docker-compose.prod.yml pull"
+                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "cd ${DEPLOY_PATH} && docker compose -f docker-compose.prod.yml pull"
                                     
                                     echo "Stopping old containers..."
-                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "cd ${DEPLOY_PATH_WINDOWS} && docker compose -f docker-compose.prod.yml down"
+                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "cd ${DEPLOY_PATH} && docker compose -f docker-compose.prod.yml down"
                                     
                                     echo "Starting new containers..."
-                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "cd ${DEPLOY_PATH_WINDOWS} && docker compose -f docker-compose.prod.yml up -d"
+                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "cd ${DEPLOY_PATH} && docker compose -f docker-compose.prod.yml up -d"
                                     
                                     echo "Checking container status..."
-                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "cd ${DEPLOY_PATH_WINDOWS} && docker compose -f docker-compose.prod.yml ps"
+                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "cd ${DEPLOY_PATH} && docker compose -f docker-compose.prod.yml ps"
                                     
                                     echo "Deployment completed!"
                                 """
