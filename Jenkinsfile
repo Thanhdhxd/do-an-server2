@@ -304,19 +304,8 @@ MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
 MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
 EOF_ENV
                                     
-                                    # Deploy trên server
-                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "powershell -Command \\\"
-                                        Set-Location ${DEPLOY_PATH_WINDOWS}
-                                        Write-Host 'Pulling latest images from registry...'
-                                        docker compose -f docker-compose.prod.yml pull
-                                        Write-Host 'Stopping old containers...'
-                                        docker compose -f docker-compose.prod.yml down
-                                        Write-Host 'Starting new containers...'
-                                        docker compose -f docker-compose.prod.yml up -d
-                                        Write-Host 'Checking container status...'
-                                        docker compose -f docker-compose.prod.yml ps
-                                        Write-Host 'Deployment completed!'
-                                    \\\"\"
+                                    # Deploy trên server - sử dụng cd thay vì Set-Location
+                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "powershell -Command \\\"\\\$ErrorActionPreference = 'Stop'; cd '${DEPLOY_PATH_WINDOWS}'; Write-Host 'Current directory:'; pwd; Write-Host 'Pulling latest images from registry...'; docker compose -f docker-compose.prod.yml pull; Write-Host 'Stopping old containers...'; docker compose -f docker-compose.prod.yml down; Write-Host 'Starting new containers...'; docker compose -f docker-compose.prod.yml up -d; Write-Host 'Checking container status...'; docker compose -f docker-compose.prod.yml ps; Write-Host 'Deployment completed!'\\\"\""
                                 """
                             } else {
                                 // Windows deployment
