@@ -228,9 +228,6 @@ pipeline {
         }
         
         stage('Deploy to Production via SSH') {
-            when {
-                branch 'main'
-            }
             steps {
                 echo 'Deploying to production server via SSH...'
                 echo "Target: ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST}:${DEPLOY_PATH}"
