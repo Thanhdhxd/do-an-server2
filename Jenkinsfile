@@ -273,7 +273,7 @@ pipeline {
                                     cat docker-compose.prod.yml | ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "powershell -Command \\\"\\\$content = \\\$input | Out-String; Set-Content -Path '${DEPLOY_PATH_WINDOWS}\\\\docker-compose.prod.yml' -Value \\\$content\\\"\""
                                     
                                     # Tạo file .env trên server với credentials từ Jenkins
-                                    ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "powershell -Command \\\"\\\$envContent = @'
+                                    cat <<'EOF_ENV' | ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "powershell -Command \"\\\$content = \\\$input | Out-String; Set-Content -Path '${DEPLOY_PATH_WINDOWS}\\.env' -Value \\\$content; Write-Host '.env file created successfully'\""
 # Database Configuration
 POSTGRES_HOST=${POSTGRES_HOST}
 POSTGRES_PORT=${POSTGRES_PORT}
@@ -302,7 +302,7 @@ MINIO_ENDPOINT=${MINIO_ENDPOINT}
 MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
 MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
 MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
-'@; Set-Content -Path '${DEPLOY_PATH_WINDOWS}\\.env' -Value \\\$envContent; Write-Host '.env file created successfully'\\\"\"
+EOF_ENV
                                     
                                     # Deploy trên server
                                     ssh -o StrictHostKeyChecking=no ${DEPLOYMENT_USER}@${DEPLOYMENT_HOST} "powershell -Command \\\"
