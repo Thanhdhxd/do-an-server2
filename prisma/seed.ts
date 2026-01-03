@@ -28,25 +28,18 @@ async function main() {
     // Tạo admin user
     const admin = await prisma.user.create({
         data: {
+            fullName: adminFullName,
             email: adminEmail,
-            password: hashedPassword,
+            passwordHash: hashedPassword,
             phoneNumber: adminPhoneNumber,
-            role: Role.ADMIN,
-            profile: {
-                create: {
-                    fullName: adminFullName,
-                    dateOfBirth: new Date('1990-01-01'),
-                },
-            },
-        },
-        include: {
-            profile: true,
+            role: Role.admin,
+            isActive: true,
         },
     })
 
     console.log('✅ Đã tạo admin user thành công!')
     console.log('📧 Email:', admin.email)
-    console.log('👤 Tên:', admin.profile?.fullName)
+    console.log('👤 Tên:', admin.fullName)
     console.log('🔑 Role:', admin.role)
     console.log('📱 Số điện thoại:', admin.phoneNumber)
 }
